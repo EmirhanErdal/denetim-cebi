@@ -89,7 +89,7 @@ function gauge(score, b) {
 function miniRing(pct) {
   const r = 18, c = 2 * Math.PI * r;
   return `<div class="mini-ring"><svg viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="${r}" class="r-bg"/>
-    <circle cx="22" cy="22" r="${r}" class="r-fg" stroke-dasharray="${(c * pct).toFixed(1)} ${c.toFixed(1)}"/></svg><span>${Math.round(pct * 100)}%</span></div>`;
+    ${pct > 0 ? `<circle cx="22" cy="22" r="${r}" class="r-fg" stroke-dasharray="${(c * pct).toFixed(1)} ${c.toFixed(1)}"/>` : ''}</svg><span>${Math.round(pct * 100)}%</span></div>`;
 }
 
 function top({ title, sub = '', back = null, right = '' }) {
@@ -287,16 +287,25 @@ function onboarding() {
 // ---------- yeni denetim ----------
 A.newAudit = btn => pickBranch(btn.dataset.branch);
 
-function tplChips(sel) {
-  if (S.templates.length < 2) return '';
-  return `<p class="lbl">Denetim türü</p><div class="chips wrap" data-tpls>${S.templates.map(t =>
-    `<button type="button" class="chip ${t.id === sel ? 'on' : ''}" data-t="${t.id}">${esc(short(t.name))}</button>`).join('')}</div>`;
+const tplIcon = t => /aktarma/i.test(t.name) ? 'layers' : /araç|arac|kurye/i.test(t.name) ? 'truck' : /şube|sube/i.test(t.name) ? 'store' : 'list';
+function tplCardsHTML(sel) {
+  return `<div class="tpl-grid">${S.templates.map(t => `<button type="button" class="tpl-c ${t.id === sel ? 'on' : ''}" data-t="${t.id}" aria-pressed="${t.id === sel}">
+    <span class="tpl-ic">${icon(tplIcon(t))}</span><b>${esc(short(t.name))}</b><small>${t.items.length} madde</small><i class="tpl-ck">${icon('check')}</i></button>`).join('')}</div>`;
 }
-function bindTplChips(w, get, set) {
+function bindTplCards(w, set) {
   w.querySelectorAll('[data-t]').forEach(c => c.onclick = () => {
     set(c.dataset.t);
-    w.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('on', x === c));
+    w.querySelectorAll('[data-t]').forEach(x => { x.classList.toggle('on', x === c); x.setAttribute('aria-pressed', x === c); });
   });
+}
+const ST_SHORT = { late: 'Zamanı geçti', soon: 'Yakında', plan: 'Planlı', new: 'Yeni', ok: 'Güncel' };
+function branchPickRow(x) {
+  const b = x.b;
+  const st = x.st.k === 'soon' && /^Bugün/.test(x.st.l) ? 'Bugün' : ST_SHORT[x.st.k];
+  return `<button class="bp-r" data-b="${b.id}" data-n="${esc(`${b.name} ${b.city || ''} ${b.manager || ''}`.toLocaleLowerCase('tr'))}">
+    ${scoreRing(x.s?.score, band(x.s?.score, x.s?.crit), 42)}
+    <span class="grow"><b>${esc(b.name)}</b><small>${esc([b.city, x.last ? `son denetim ${trDate(x.last.date)}` : 'henüz denetlenmedi'].filter(Boolean).join(' · '))}</small></span>
+    <span class="bp-st st-${x.st.k}">${st}</span>${icon('chevron')}</button>`;
 }
 
 function pickBranch(preset) {
@@ -304,35 +313,42 @@ function pickBranch(preset) {
   if (preset) {
     const b = getBranch(preset);
     if (S.templates.length < 2) return startAudit(b, S.templates[0]);
-    const w = sheet(`<h2 class="sheet-t">${esc(b.name)}</h2><div class="sheet-list">${S.templates.map(t =>
-      `<button class="row-btn" data-tp="${t.id}">${icon('list')}<span><b>${esc(t.name)}</b><small>${t.items.length} madde</small></span></button>`).join('')}</div>`);
-    w.querySelectorAll('[data-tp]').forEach(x => x.onclick = () => { w.close(); startAudit(b, getTpl(x.dataset.tp)); });
+    const w = sheet(`<div class="np-h"><span class="np-ic">${icon('play')}</span><div><h2 class="sheet-t">${esc(b.name)}</h2><p class="sheet-p">Hangi denetimi yapacaksın?</p></div></div>
+      ${tplCardsHTML(sel)}
+      <div class="sheet-btns"><button class="btn ghost" data-close>Vazgeç</button><button class="btn accent" data-go>${icon('play')} Başla</button></div>`, { cls: 'wide' });
+    bindTplCards(w, v => { sel = v; });
+    w.$('[data-go]').onclick = () => { w.close(); startAudit(b, getTpl(sel)); };
     return;
   }
-  const list = [...S.branches].sort(byName);
-  const w = sheet(`<h2 class="sheet-t">Yeni denetim</h2>
-    ${tplChips(sel)}
-    <p class="lbl">Hangi şubedesin?</p>
-    ${list.length > 4 ? `<input class="search" type="search" placeholder="Şube ara" data-q>` : ''}
-    <div class="sheet-list" data-list>${list.map(b => {
-      const last = lastAudit(b.id);
-      return `<button class="row-btn" data-b="${b.id}" data-n="${esc(b.name.toLocaleLowerCase('tr'))}">${icon('store')}<span><b>${esc(b.name)}</b><small>${esc(b.city || '')}${last ? `${b.city ? ' · ' : ''}son denetim ${trDate(last.date)}` : ''}</small></span></button>`;
-    }).join('')}</div>
-    <form class="inline-add" data-add>
-      <input name="name" placeholder="Yeni şube adı" autocomplete="off">
-      <button class="btn primary" type="submit">${icon('plus')} Ekle ve başla</button>
-    </form>`);
-  bindTplChips(w, () => sel, v => { sel = v; });
+  const t = todayISO(), open = openFindings();
+  const all = S.branches.map(b => bStats(b, t, open));
+  const sugIds = todoList().slice(0, 3).map(x => x.b.id);
+  const sug = sugIds.map(id => all.find(x => x.b.id === id)).filter(Boolean);
+  const rest = all.filter(x => !sugIds.includes(x.b.id)).sort((p, q) => byName(p.b, q.b));
+  const w = sheet(`<div class="np-h"><span class="np-ic">${icon('play')}</span><div><h2 class="sheet-t">Yeni denetim</h2><p class="sheet-p">${S.templates.length > 1 ? 'Türü seç, sonra şubeye dokun.' : 'Şubeye dokun, denetim başlasın.'}</p></div></div>
+    ${S.templates.length > 1 ? `<p class="np-t">Denetim türü</p>${tplCardsHTML(sel)}` : ''}
+    <p class="np-t">Şube</p>
+    ${all.length > 4 ? `<label class="search-w">${icon('search')}<input type="search" placeholder="Şube, il ya da sorumlu ara" data-q></label>` : ''}
+    ${sug.length ? `<div class="bp-grp" data-grp><p class="np-s">${icon('bell')} Önerilen</p><div class="bp-list">${sug.map(branchPickRow).join('')}</div></div>` : ''}
+    ${rest.length ? `<div class="bp-grp" data-grp>${sug.length ? `<p class="np-s">${icon('store')} Tüm şubeler</p>` : ''}<div class="bp-list">${rest.map(branchPickRow).join('')}</div></div>` : ''}
+    ${!all.length ? '<p class="empty-s">Henüz şube yok. Aşağıya ilk şubenin adını yaz.</p>' : ''}
+    <p class="empty-s" data-none hidden>Aramayla eşleşen şube yok. Aşağıdan yeni şube olarak ekleyebilirsin.</p>
+    <form class="np-add" data-add>${icon('plus')}<input name="name" placeholder="Yeni şube adı" autocomplete="off"><button class="btn primary sm" type="submit">Ekle ve başla</button></form>`, { cls: 'tall wide' });
+  bindTplCards(w, v => { sel = v; });
   const q = w.$('[data-q]');
   if (q) q.oninput = () => {
     const v = q.value.toLocaleLowerCase('tr').trim();
-    w.querySelectorAll('[data-b]').forEach(b => { b.hidden = v && !b.dataset.n.includes(v); });
+    let any = false;
+    w.querySelectorAll('[data-b]').forEach(b => { const hit = !v || b.dataset.n.includes(v); b.hidden = !hit; if (hit) any = true; });
+    w.querySelectorAll('[data-grp]').forEach(g => { g.hidden = !g.querySelector('[data-b]:not([hidden])'); });
+    w.$('[data-none]').hidden = any || !v;
+    if (!any && v) w.$('[data-add] input').value = q.value.trim(); // bulunamayan adı yeni şube olarak öner
   };
   w.querySelectorAll('[data-b]').forEach(b => b.onclick = () => { w.close(); startAudit(getBranch(b.dataset.b), getTpl(sel)); });
   w.$('[data-add]').onsubmit = async e => {
     e.preventDefault();
     const name = e.target.name.value.trim();
-    if (!name) return;
+    if (!name) { e.target.name.focus(); return; }
     const b = { id: db.uid(), name, city: '', manager: '', phone: '' };
     S.branches.push(b);
     await saveBranch(b);
@@ -397,12 +413,13 @@ function viewAudit(id) {
   const a = getAudit(id);
   if (!a) return notFound();
   if (a.status === 'tamam') { location.replace('#/rapor/' + id); return; }
-  if (cur.audit !== a) { cur.open = new Set(); cur.bank = buildBank(a); cur.focus = null; }
+  if (cur.audit !== a) { cur.open = new Set(); cur.bank = buildBank(a); cur.focus = null; cur.col = new Set(); }
   cur.audit = a;
   cur.prev = findPrev(a, S.audits);
   const cats = new Map();
   for (const it of a.items) { if (!cats.has(it.cat)) cats.set(it.cat, []); cats.get(it.cat).push(it); }
   cur.cats = [...cats.entries()];
+  cur.idx = new Map(a.items.map((it, i) => [it.id, i + 1]));
   auditTop(a);
 
   const openPrev = openFindings().filter(x => x.audit.branchId === a.branchId && tplId(x.audit) === tplId(a));
@@ -412,9 +429,9 @@ function viewAudit(id) {
     <div class="aud">
     <aside class="cat-nav" aria-label="Başlıklar">
       <p class="cn-t">Başlıklar</p>
-      ${cur.cats.map(([cat, items], ci) => `<button class="cn-r" data-act="jumpTo" data-to="cat-${ci}"><span>${esc(cat)}</span><em data-navn="${ci}">${navCount(a, items)}</em></button>`).join('')}
-      <button class="cn-r" data-act="jumpTo" data-to="tools"><span>Ek kontroller</span>${icon('cash')}</button>
-      <button class="cn-r" data-act="jumpTo" data-to="gen"><span>Genel değerlendirme</span>${icon('edit')}</button>
+      ${cur.cats.map((_, ci) => `<button class="cn-r" id="cn-${ci}" data-act="jumpTo" data-to="cat-${ci}">${navRowHTML(a, ci)}</button>`).join('')}
+      <button class="cn-r" data-act="jumpTo" data-to="tools"><span class="cn-dot ex"></span><span>Ek kontroller</span>${icon('cash')}</button>
+      <button class="cn-r" data-act="jumpTo" data-to="gen"><span class="cn-dot ex"></span><span>Genel değerlendirme</span>${icon('edit')}</button>
       <button class="btn primary block cn-finish" data-act="finish">${icon('check')} Bitir ve raporla</button>
       <div class="kb-hint"><p><b>Klavye</b></p>
         <p><kbd>↑</kbd><kbd>↓</kbd> madde seç</p><p><kbd>1</kbd> uygun · <kbd>2</kbd> değil · <kbd>3</kbd> yok</p><p><kbd>Enter</kbd> not yaz · <kbd>Esc</kbd> geri</p></div>
@@ -426,11 +443,10 @@ function viewAudit(id) {
       <div class="info-grid">${a.fields.map(f => `<label><span>${esc(f.label)}</span>
         <input data-field="info" data-k="${f.k}" ${f.type === 'num' ? 'type="number" inputmode="numeric"' : 'autocomplete="off"'} value="${esc(a.info?.[f.k] ?? '')}"></label>`).join('')}</div>
     </section>` : ''}
-    ${cur.cats.map(([cat, items], ci) => `
-      <section class="cat" id="cat-${ci}">
-        <header class="cat-h"><h2>${esc(cat)}</h2><span class="cat-n" data-catn="${ci}">${catCount(a, items)}</span></header>
-        ${items.map(it => itemHTML(a, it)).join('')}
-        <button class="btn ghost sm cat-ok" data-act="catOk" data-cat="${ci}">${icon('check')} Kalanları “uygun” işaretle</button>
+    ${cur.cats.map(([, items], ci) => `
+      <section class="cat ${cur.col.has(ci) ? 'col' : ''}" id="cat-${ci}">
+        <header class="cat-head" id="ch-${ci}" data-act="catToggle" data-cat="${ci}">${catHeadHTML(a, ci)}</header>
+        <div class="cat-body">${items.map(it => itemHTML(a, it)).join('')}</div>
       </section>`).join('')}
     <section class="cat" id="tools">${toolsHTML(a)}</section>
     <section class="cat general" id="gen">
@@ -445,19 +461,88 @@ function viewAudit(id) {
     <div class="finishbar"><button class="btn primary xl block" data-act="finish">${icon('check')} Denetimi bitir ve raporla</button></div>
     <button class="btn link danger-t block" data-act="discard">Bu denetimi sil</button>
     </div></div>
+    <div class="aud-bar" id="audBar">${audBarHTML(a)}</div>
   `;
   hydratePhotos($app);
   if (cur.focus) document.getElementById('it-' + cur.focus)?.classList.add('kb');
+  // geçen süre yarım dakikada bir güncellenir
+  clearInterval(cur.timer);
+  cur.timer = setInterval(() => {
+    const el = document.querySelector('[data-timer]');
+    if (!el || !cur.audit) { clearInterval(cur.timer); return; }
+    el.textContent = elapsed(cur.audit);
+  }, 30000);
 }
 
-function navCount(a, items) {
-  const n = items.filter(i => a.answers[i.id]?.r).length;
-  const bad = items.filter(i => a.answers[i.id]?.r === 'nok').length;
-  return `${bad ? `<i>${bad}</i>` : ''}${n}/${items.length}`;
+function elapsed(a) {
+  const m = Math.max(0, Math.round((Date.now() - (a.startedAt || Date.now())) / 60000));
+  if (m > 720) return `${hhmm(a.startedAt)}'den beri`;
+  return m < 60 ? `${m} dk` : `${Math.floor(m / 60)} sa ${m % 60} dk`;
 }
+
+function counts(a, items) {
+  const c = { ok: 0, nok: 0, na: 0, n: 0, len: items.length };
+  for (const i of items) { const r = a.answers[i.id]?.r; if (r) { c[r]++; c.n++; } }
+  return c;
+}
+function segBar(c) {
+  const w = v => (v / c.len * 100).toFixed(2);
+  return `<span class="sbar" aria-hidden="true"><i class="ok" style="width:${w(c.ok)}%"></i><i class="nok" style="width:${w(c.nok)}%"></i><i class="na" style="width:${w(c.na)}%"></i></span>`;
+}
+function catHeadHTML(a, ci) {
+  const [cat, items] = cur.cats[ci];
+  const c = counts(a, items);
+  const full = c.n === c.len;
+  return `<span class="ch-i ${full ? (c.nok ? 'bad' : 'done') : c.n ? 'part' : ''}">${full ? icon(c.nok ? 'alert' : 'check') : ci + 1}</span>
+    <span class="ch-t"><b>${esc(cat)}</b><small>${c.n}/${c.len} cevaplandı${c.nok ? ` · <em>${c.nok} bulgu</em>` : ''}</small></span>
+    ${!full ? `<button class="btn ghost sm ch-ok" data-act="catOk" data-cat="${ci}" title="Cevaplanmamış maddeleri uygun işaretle">${icon('check')}<span>Kalanı uygun</span></button>` : ''}
+    <span class="ch-chev">${icon('chevron')}</span>
+    ${segBar(c)}`;
+}
+function navRowHTML(a, ci) {
+  const [cat, items] = cur.cats[ci];
+  const c = counts(a, items);
+  const st = c.n === c.len ? (c.nok ? 'bad' : 'done') : c.n ? 'part' : '';
+  return `<span class="cn-dot ${st}"></span><span>${esc(cat)}</span><em>${c.nok ? `<i>${c.nok}</i>` : ''}${c.n}/${c.len}</em>`;
+}
+function audBarHTML(a) {
+  const left = a.items.filter(i => !a.answers[i.id]?.r).length;
+  return left
+    ? `<button class="btn ghost ab-next" data-act="nextEmpty">${icon('chevron', 'down')}<span>Sıradaki boş madde</span><b>${left}</b></button>
+       <button class="btn primary" data-act="finish">${icon('check')} Bitir</button>`
+    : `<span class="ab-done">${icon('check')} Bütün maddeler cevaplandı</span>
+       <button class="btn accent" data-act="finish">${icon('check')} Bitir ve raporla</button>`;
+}
+A.catToggle = btn => {
+  const ci = +btn.dataset.cat;
+  if (cur.col.has(ci)) cur.col.delete(ci); else cur.col.add(ci);
+  document.getElementById('cat-' + ci).classList.toggle('col', cur.col.has(ci));
+};
+function expandFor(el) {
+  const sec = el?.closest('.cat.col');
+  if (!sec) return;
+  const ci = +sec.id.slice(4);
+  cur.col.delete(ci);
+  sec.classList.remove('col');
+}
+A.nextEmpty = () => {
+  const a = cur.audit;
+  const empty = a.items.filter(i => !a.answers[i.id]?.r);
+  if (!empty.length) return;
+  const lim = (document.getElementById('prog')?.getBoundingClientRect().bottom || 140) + 8;
+  const below = empty.find(i => { const el = document.getElementById('it-' + i.id); return el && !el.closest('.cat.col') && el.getBoundingClientRect().top > lim; });
+  const target = below || empty[0];
+  const el = document.getElementById('it-' + target.id);
+  expandFor(el);
+  setFocus(target.id);
+  el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1400);
+};
+
 A.jumpTo = btn => {
   const el = document.getElementById(btn.dataset.to);
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (!el) return;
+  if (el.classList.contains('col')) { cur.col.delete(+el.id.slice(4)); el.classList.remove('col'); }
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
 // ---------- klavye: bilgisayarda hızlı denetim (↑↓ seç, 1/2/3 cevap, Enter not, Esc geri) ----------
@@ -467,6 +552,7 @@ function setFocus(id, scroll = true) {
   cur.focus = id;
   const el = document.getElementById('it-' + id);
   if (!el) return;
+  expandFor(el);
   el.classList.add('kb');
   if (scroll) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
@@ -527,8 +613,10 @@ function progHTML(a) {
   const answered = s.total - s.unans;
   return `<div class="prog-row">${miniRing(answered / s.total)}
     <div class="prog-t"><b>${answered} / ${s.total} madde</b>
-      <small>${s.ok} uygun · ${s.nok ? `<em>${s.nok} bulgu</em>` : '0 bulgu'}${s.crit ? ` · <em>${s.crit} kritik</em>` : ''}</small></div>
-    <span class="live-score b-${band(s.score, s.crit)}">${s.score ?? '—'}<small>puan</small></span></div>`;
+      <small>${s.ok} uygun · ${s.nok ? `<em>${s.nok} bulgu</em>` : '0 bulgu'}${s.crit ? ` · <em>${s.crit} kritik</em>` : ''}${s.na ? ` · ${s.na} yok` : ''}</small></div>
+    <span class="ph-time" title="Denetim süresi">${icon('clock')}<b data-timer>${elapsed(a)}</b></span>
+    <span class="live-score b-${band(s.score, s.crit)}">${s.score ?? '—'}<small>puan</small></span></div>
+    ${segBar({ ok: s.ok, nok: s.nok, na: s.na, len: s.total })}`;
 }
 
 function itemHTML(a, it) {
@@ -539,7 +627,7 @@ function itemHTML(a, it) {
   const seg = (r, label, ic) => `<button class="s-${r} ${ans.r === r ? 'on' : ''}" data-act="ans" data-r="${r}" aria-pressed="${ans.r === r}">${icon(ic)}<span>${label}</span></button>`;
   const has = (ans.note || (ans.photos || []).length) && !open;
   return `<article class="item ${ans.r ? 'r-' + ans.r : ''} ${rep ? 'rep' : ''} ${cur.focus === it.id ? 'kb' : ''}" id="it-${it.id}" data-item="${it.id}">
-    <div class="item-top"><p class="item-text">${esc(it.text)}</p><span class="sev sev-${it.sev}">${SEV[it.sev].label}</span></div>
+    <div class="item-top"><span class="it-no">${cur.idx?.get(it.id) ?? ''}</span><p class="item-text">${esc(it.text)}</p><span class="sev sev-${it.sev}">${SEV[it.sev].label}</span></div>
     ${rep ? `<p class="prevflag">${icon('alert')} Önceki denetimde uygun değildi${pa.note ? `: “${esc(pa.note)}”` : ''}</p>` : ''}
     <div class="seg">${seg('ok', 'Uygun', 'check')}${seg('nok', 'Uygun değil', 'x')}${seg('na', 'Yok', 'minus')}</div>
     ${open ? `<div class="detail">
@@ -563,10 +651,12 @@ function refreshItem(id) {
   const nw = document.getElementById('it-' + id);
   hydratePhotos(nw);
   const ci = cur.cats.findIndex(([c]) => c === it.cat);
-  const n = $app.querySelector(`[data-catn="${ci}"]`);
-  if (n) n.innerHTML = catCount(cur.audit, cur.cats[ci][1]);
-  const nv = $app.querySelector(`[data-navn="${ci}"]`);
-  if (nv) nv.innerHTML = navCount(cur.audit, cur.cats[ci][1]);
+  const ch = document.getElementById('ch-' + ci);
+  if (ch) ch.innerHTML = catHeadHTML(cur.audit, ci);
+  const cn = document.getElementById('cn-' + ci);
+  if (cn) cn.innerHTML = navRowHTML(cur.audit, ci);
+  const ab = document.getElementById('audBar');
+  if (ab) ab.innerHTML = audBarHTML(cur.audit);
   document.getElementById('prog').innerHTML = progHTML(cur.audit);
   return nw;
 }
@@ -618,6 +708,12 @@ A.catOk = btn => {
   }
   saveAudit(a);
   toast(n ? `${n} madde uygun işaretlendi` : 'Bu başlıkta boş madde yok');
+  // biten başlık kapanır, sıradaki başlığa geçilir
+  const ci = +btn.dataset.cat;
+  cur.col.add(ci);
+  document.getElementById('cat-' + ci)?.classList.add('col');
+  const next = document.getElementById('cat-' + (ci + 1)) || document.getElementById('tools');
+  next?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 A.viewPhoto = btn => {
   const ph = btn.dataset.ph;
@@ -1573,7 +1669,7 @@ A.periodXlsx = async () => { try { await xl.exportPeriod(cur.periodLabel, cur.pe
 A.periodXlsxShare = async () => { try { await xl.exportPeriod(cur.periodLabel, cur.periodStats, S.branches, true); } catch (e) { toast(e.message); } };
 
 // ============ AYARLAR ============
-const APP_VERSION = '1.14';
+const APP_VERSION = '1.15';
 // "Ana ekrana ekle" isteği: tarayıcı izin verirse yakalanır, Ayarlar'daki düğme kullanır
 let installEvt = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (location.hash.startsWith('#/ayarlar')) rerender(); });
