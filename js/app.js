@@ -802,7 +802,7 @@ function viewReport(id) {
     <div class="dcol dside">
     <div class="actgrid o2">
       <button class="act" data-act="print">${icon('printer')}<span>PDF / Yazdır</span></button>
-      <button class="act" data-act="xlsx">${icon('table')}<span>Excel indir</span></button>
+      <button class="act" data-act="xlsx">${icon('table')}<span>Excel'i aç</span></button>
       <button class="act" data-act="sendFindings">${icon('chat')}<span>Şubeye gönder</span></button>
       <button class="act" data-act="xlsxShare">${icon('share')}<span>Excel'i paylaş</span></button>
     </div>
@@ -842,7 +842,7 @@ A.regen = async () => {
 A.copyReport = () => copy(reportTextOf(cur.report));
 A.xlsx = async () => {
   const { a, br, prev } = cur.report;
-  try { await xl.exportAudit(a, br, prev, S.settings, reportTextOf(cur.report), false); toast('Excel indirildi'); }
+  try { await xl.exportAudit(a, br, prev, S.settings, reportTextOf(cur.report), 'view'); }
   catch (e) { toast(e.message); }
 };
 A.xlsxShare = async () => {
@@ -1240,7 +1240,7 @@ function viewSummary() {
       <div class="row-gap"><button class="btn ghost" data-act="sharePeriod">${icon('chat')} Mesajla gönder</button></div></section>
     </div><div class="dcol dside">
     <div class="actgrid two">
-      <button class="act" data-act="periodXlsx">${icon('table')}<span>Excel indir</span></button>
+      <button class="act" data-act="periodXlsx">${icon('table')}<span>Excel'i aç</span></button>
       <button class="act" data-act="periodXlsxShare">${icon('share')}<span>Excel'i paylaş</span></button>
     </div>
     <section class="card pad"><header class="card-h"><h3>Şube sıralaması</h3></header>
@@ -1267,7 +1267,7 @@ A.mon = btn => {
 };
 A.copyPeriod = () => copy($app.querySelector('[data-period-text]').value);
 A.sharePeriod = () => shareSheet($app.querySelector('[data-period-text]').value, cur.per === 'hafta' ? 'Haftalık raporu gönder' : 'Aylık özeti gönder');
-A.periodXlsx = async () => { try { await xl.exportPeriod(cur.periodLabel, cur.periodStats, S.branches, false); toast('Excel indirildi'); } catch (e) { toast(e.message); } };
+A.periodXlsx = async () => { try { await xl.exportPeriod(cur.periodLabel, cur.periodStats, S.branches, 'view'); } catch (e) { toast(e.message); } };
 A.periodXlsxShare = async () => { try { await xl.exportPeriod(cur.periodLabel, cur.periodStats, S.branches, true); } catch (e) { toast(e.message); } };
 
 // ============ AYARLAR ============
@@ -1314,7 +1314,8 @@ async function viewSettings() {
         <button class="btn primary grow" data-act="backup">${icon('download')} Yedek al</button>
         <label class="btn ghost grow">${icon('upload')} Yedeği geri yükle<input type="file" accept=".json,application/json" data-field="restore" hidden></label>
       </div>
-      <button class="btn ghost block mt" data-act="exportAll">${icon('table')} Bütün kayıtları Excel'e aktar</button>
+      <div class="row-gap mt"><button class="btn ghost grow" data-act="exportAll">${icon('table')} Bütün kayıtları Excel'de aç</button>
+        <label class="btn ghost grow">${icon('upload')} Excel dosyası aç<input type="file" accept=".xlsx,.xls,.csv,.ods" data-field="xlsOpen" hidden></label></div>
     </section>
     <a class="card row" href="#/yardim">${icon('help')}<div class="grow"><b>Nasıl kullanılır?</b><small>Kısa kullanım rehberi</small></div>${icon('chevron')}</a>
     <section class="card pad">
@@ -1366,7 +1367,12 @@ A.mySign = async () => {
   toast('İmzan kaydedildi');
   rerender();
 };
-A.exportAll = async () => { try { await xl.exportAll(S.audits, S.branches); toast('Excel indirildi'); } catch (e) { toast(e.message); } };
+A.exportAll = async () => { try { await xl.exportAll(S.audits, S.branches, 'view'); } catch (e) { toast(e.message); } };
+F.xlsOpen = async (el, ev) => {
+  if (ev !== 'change' || !el.files[0]) return;
+  try { await xl.openWorkbook(el.files[0]); } catch { toast('Bu dosya açılamadı'); }
+  el.value = '';
+};
 
 async function sha(s) {
   const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('denetim-cebi:' + s));
@@ -1488,7 +1494,7 @@ function viewHelp() {
     ${sec('cash', 'Kasa ve gönderi kontrolü', `<p>Listenin altındaki <b>Ek kontroller</b> bölümünde kasayı say: banknot adetlerini ve sistemdeki tutarı yaz, fark hesaplanır. Fark varsa kasa maddesi kendiliğinden işaretlenir.</p>
       <p><b>Gönderi kontrolü</b> ile depodan rastgele gönderilerin barkodunu kamerayla okut. Sorunlu olanın durumunu seç.</p>`)}
     ${sec('printer', 'Bitir ve raporla', `<p><b>Denetimi bitir</b>'e bas. Puan, rapor metni ve başlık puanları hazırlanır. Şube sorumlusu <b>İmza al</b> ile ekrana imza atar.</p>
-      <p><b>PDF / Yazdır</b> → açılan pencerede “PDF olarak kaydet”. <b>Excel indir</b> şirketin tablosu için. <b>Şubeye gönder</b> bulguları WhatsApp'tan yollar.</p>`)}
+      <p><b>PDF / Yazdır</b> → açılan pencerede “PDF olarak kaydet”. <b>Excel'i aç</b> tabloyu uygulamanın içinde gösterir, oradan indirir ya da paylaşırsın. Ayarlar'dan dışarıdan gelen bir Excel dosyasını da açabilirsin. <b>Şubeye gönder</b> bulguları WhatsApp'tan yollar.</p>`)}
     ${sec('flag', 'Bulgu takibi', `<p><b>Bulgular</b> sekmesinde açık bulgular termin sırasıyla durur. Termini geçenler kırmızıdır. <b>Hatırlat</b> şubeye hazır mesaj gönderir, <b>Kapat</b> bulguyu kanıt fotoğrafıyla kapatır. Tarihe dokunarak termini değiştirebilirsin.</p>`)}
     ${sec('calendar', 'Plan ve hatırlatma', `<p>Şube sayfasında <b>Planla</b> ile denetim günü seç. Ana sayfadaki <b>Sıradaki şubeler</b>, planlananları ve uzun süredir denetlenmeyenleri gösterir.</p>`)}
     ${sec('chart', 'Haftalık ve aylık rapor', `<p><b>Özet</b> sekmesinde hafta ya da ay seç. Yöneticiye gidecek faaliyet metni, şube sıralaması ve Excel hazırdır.</p>`)}
@@ -1512,7 +1518,7 @@ function viewChecklist() {
       Şirketin listesi Excel'deyse “Kategori, Madde, Önem” sütunlarıyla yükle.</p>
       <div class="actgrid two mt">
         <label class="act">${icon('upload')}<span>Excel'den yükle</span><input type="file" accept=".xlsx,.xls,.csv" data-field="clImport" hidden></label>
-        <button class="act" data-act="clExport">${icon('table')}<span>Excel'e aktar</span></button>
+        <button class="act" data-act="clExport">${icon('table')}<span>Excel'de aç</span></button>
       </div>
     </section>
     <section class="cat">
@@ -1654,7 +1660,7 @@ A.clReset = async () => {
   T.items = d.items; T.fields = d.fields; T.name = d.name;
   saveTplAnd();
 };
-A.clExport = async () => { try { await xl.exportChecklist(curTpl()); toast('Excel indirildi'); } catch (e) { toast(e.message); } };
+A.clExport = async () => { try { await xl.exportChecklist(curTpl(), 'view'); } catch (e) { toast(e.message); } };
 F.clImport = async (el, ev) => {
   if (ev !== 'change' || !el.files[0]) return;
   try {

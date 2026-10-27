@@ -1,6 +1,6 @@
 import { SEV, trDate, parseSev, makeItemId, DENOMS, cashTotal, SHIP_ST, hhmm } from './data.js';
 import { scoreOf, rating, findings, isRepeat, catScores, infoRows } from './report.js';
-import { saveFile } from './ui.js';
+import { saveFile, esc, icon, toast } from './ui.js';
 
 // Excel kütüphanesi (~900 KB) yalnızca ilk ihtiyaçta yüklenir.
 let xp;
@@ -28,10 +28,123 @@ function sheet(X, rows, widths) {
 const durum = a => a.r !== 'nok' ? '' : a.closed ? `Kapandı (${trDate(a.closedAt)})` : a.carried ? 'Sonraki denetime devredildi' : 'Açık';
 const sonuc = r => ({ ok: 'Uygun', nok: 'Uygun değil', na: 'Kapsam dışı' })[r] || 'Cevaplanmadı';
 
-async function output(X, wb, filename, share) {
-  const buf = X.write(wb, { bookType: 'xlsx', type: 'array' });
-  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  return saveFile(blob, filename, share);
+const blobOf = (X, wb) => new Blob([X.write(wb, { bookType: 'xlsx', type: 'array' })],
+  { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+// mode: 'view' uygulama içinde açar; true/'share' paylaşır; false indirir
+async function output(X, wb, filename, mode) {
+  if (mode === 'view') { viewWorkbook(X, wb, filename, true); return 'viewed'; }
+  return saveFile(blobOf(X, wb), filename, mode === true || mode === 'share');
+}
+
+// Dışarıdan gelen bir Excel dosyasını (ör. şirketin tablosu) uygulama içinde aç
+export async function openWorkbook(file) {
+  const X = await loadXLSX();
+  const wb = X.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+  viewWorkbook(X, wb, file.name, false);
+}
+
+// ---------- uygulama içi Excel görüntüleyici ----------
+const colName = n => { let s = ''; n++; while (n) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+const MAX_ROWS = 3000;
+
+function cellText(c) {
+  if (!c) return '';
+  if (c.v instanceof Date) {
+    const d = c.v, hasTime = d.getHours() || d.getMinutes();
+    return d.toLocaleDateString('tr-TR') + (hasTime ? ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '');
+  }
+  if (c.w != null && c.t !== 'n') return c.w;
+  if (typeof c.v === 'number') return c.v.toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+  if (typeof c.v === 'boolean') return c.v ? 'Doğru' : 'Yanlış';
+  return c.v == null ? '' : String(c.v);
+}
+
+function sheetHTML(X, ws) {
+  if (!ws || !ws['!ref']) return '<p class="xv-empty">Bu sayfa boş.</p>';
+  const rg = X.utils.decode_range(ws['!ref']);
+  const cols = ws['!cols'] || [];
+  const merges = ws['!merges'] || [];
+  const span = new Map(), covered = new Set();
+  for (const m of merges) {
+    span.set(`${m.s.r},${m.s.c}`, { rs: m.e.r - m.s.r + 1, cs: m.e.c - m.s.c + 1 });
+    for (let r = m.s.r; r <= m.e.r; r++) for (let c = m.s.c; c <= m.e.c; c++) if (r !== m.s.r || c !== m.s.c) covered.add(`${r},${c}`);
+  }
+  const lastR = Math.min(rg.e.r, rg.s.r + MAX_ROWS - 1);
+  // başlık satırı: ilk 20 satırda, hepsi yazı olan en çok dolu hücreli satır (en az 3)
+  let headR = -1, best = 2;
+  for (let r = rg.s.r; r <= Math.min(lastR, rg.s.r + 20); r++) {
+    let n = 0, allText = true;
+    for (let c = rg.s.c; c <= rg.e.c; c++) { const cl = ws[X.utils.encode_cell({ r, c })]; if (cl && cl.v !== '' && cl.v != null) { n++; if (typeof cl.v !== 'string') allText = false; } }
+    if (allText && n > best) { best = n; headR = r; }
+  }
+  const widths = [];
+  for (let c = rg.s.c; c <= rg.e.c; c++) widths.push(Math.round(Math.min(440, Math.max(56, (cols[c]?.wch || 12) * 7.4 + 18))));
+  const total = 44 + widths.reduce((t, w) => t + w, 0);
+  let h = `<table class="xv-g" style="width:${total}px"><colgroup><col style="width:44px">${widths.map(w => `<col style="width:${w}px">`).join('')}</colgroup>`;
+  h += `<thead><tr><th class="xv-c"></th>${widths.map((_, i) => `<th>${colName(rg.s.c + i)}</th>`).join('')}</tr></thead><tbody>`;
+  for (let r = rg.s.r; r <= lastR; r++) {
+    const cls = r === headR ? 'xv-head' : r === rg.s.r && headR !== r ? 'xv-first' : '';
+    h += `<tr class="${cls}"><th>${r + 1}</th>`;
+    for (let c = rg.s.c; c <= rg.e.c; c++) {
+      const k = `${r},${c}`;
+      if (covered.has(k)) continue;
+      const cl = ws[X.utils.encode_cell({ r, c })];
+      const sp = span.get(k);
+      const num = cl && cl.t === 'n';
+      h += `<td${sp ? ` colspan="${sp.cs}" rowspan="${sp.rs}"` : ''}${num ? ' class="n"' : ''}>${esc(cellText(cl))}</td>`;
+    }
+    h += '</tr>';
+  }
+  h += '</tbody></table>';
+  if (rg.e.r > lastR) h += `<p class="xv-empty">İlk ${MAX_ROWS} satır gösteriliyor. Tamamı için dosyayı indir.</p>`;
+  return h;
+}
+
+function viewWorkbook(X, wb, filename, canSave) {
+  const el = document.createElement('div');
+  el.className = 'xv';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-label', filename);
+  el.innerHTML = `<div class="xv-in">
+    <header class="xv-h">
+      <span class="xv-ic">${icon('table')}</span>
+      <div class="xv-t"><b>${esc(filename)}</b><small>${wb.SheetNames.length} sayfa</small></div>
+      ${canSave ? `<button class="btn ghost sm" data-dl>${icon('download')}<span>İndir</span></button>
+      <button class="btn ghost sm" data-sh>${icon('share')}<span>Paylaş</span></button>` : ''}
+      <button class="tb-act" data-x aria-label="Kapat">${icon('x')}</button>
+    </header>
+    <nav class="xv-tabs">${wb.SheetNames.map((n, i) => `<button class="${i ? '' : 'on'}" data-s="${i}">${esc(n)}</button>`).join('')}</nav>
+    <div class="xv-body"></div>
+  </div>`;
+  document.body.appendChild(el);
+  document.body.classList.add('xv-open');
+  const body = el.querySelector('.xv-body');
+  const show = i => {
+    body.innerHTML = sheetHTML(X, wb.Sheets[wb.SheetNames[i]]);
+    body.scrollTo(0, 0);
+    el.querySelectorAll('[data-s]').forEach(b => b.classList.toggle('on', +b.dataset.s === i));
+  };
+  show(0);
+  requestAnimationFrame(() => el.classList.add('in'));
+  const close = () => {
+    el.classList.remove('in');
+    document.body.classList.remove('xv-open');
+    document.removeEventListener('keydown', onKey);
+    setTimeout(() => el.remove(), 200);
+  };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  el.addEventListener('click', async e => {
+    const s = e.target.closest('[data-s]');
+    if (s) show(+s.dataset.s);
+    if (e.target.closest('[data-x]')) close();
+    if (e.target.closest('[data-dl]')) { await saveFile(blobOf(X, wb), filename, false); toast('Excel indirildi'); }
+    if (e.target.closest('[data-sh]')) {
+      const r = await saveFile(blobOf(X, wb), filename, true);
+      if (r === 'downloaded') toast('Paylaşım desteklenmiyor, dosya indirildi');
+    }
+  });
 }
 
 function cashRows(c) {
@@ -125,22 +238,22 @@ export async function exportPeriod(label, st, branches, share) {
 }
 
 // Bütün kayıtlar tek dosyada (yedek değil, okumak ve paylaşmak için)
-export async function exportAll(audits, branches) {
+export async function exportAll(audits, branches, mode = false) {
   const X = await loadXLSX();
   const wb = X.utils.book_new();
   auditSheets(X, wb, audits.filter(a => a.status === 'tamam').sort((a, b) => a.date.localeCompare(b.date)), branches);
   const b = [['Şube / birim', 'Bölge', 'Sorumlu', 'Telefon', 'Denetim sıklığı (gün)', 'Planlanan denetim']]
     .concat(branches.map(x => [x.name, x.city || '', x.manager || '', x.phone || '', x.freq || '', trDate(x.planned)]));
   X.utils.book_append_sheet(wb, sheet(X, b, [26, 18, 20, 16, 12, 14]), 'Şubeler');
-  return output(X, wb, `Denetim_Tum_Kayitlar_${new Date().toISOString().slice(0, 10)}.xlsx`, false);
+  return output(X, wb, `Denetim_Tum_Kayitlar_${new Date().toISOString().slice(0, 10)}.xlsx`, mode);
 }
 
-export async function exportChecklist(tpl) {
+export async function exportChecklist(tpl, mode = false) {
   const X = await loadXLSX();
   const wb = X.utils.book_new();
   const rows = [['Kategori', 'Madde', 'Önem']].concat(tpl.items.map(i => [i.cat, i.text, SEV[i.sev].label]));
   X.utils.book_append_sheet(wb, sheet(X, rows, [26, 60, 10]), 'Kontrol Listesi');
-  return output(X, wb, `Kontrol_Listesi_${fileSafe(tpl.name)}.xlsx`, false);
+  return output(X, wb, `Kontrol_Listesi_${fileSafe(tpl.name)}.xlsx`, mode);
 }
 
 // Kendi Excel'indeki listeyi içeri al: "Kategori", "Madde" (zorunlu) ve "Önem" (isteğe bağlı) sütunları aranır.

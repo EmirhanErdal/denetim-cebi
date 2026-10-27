@@ -758,6 +758,48 @@ kbd { display: inline-grid; place-items: center; min-width: 22px; height: 22px; 
   .v-branches .list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
+/* ---------- uygulama içi Excel görüntüleyici ---------- */
+body.xv-open { overflow: hidden; }
+.xv { position: fixed; inset: 0; z-index: 70; background: rgba(5, 8, 14, 0); transition: background .2s; display: flex; }
+.xv.in { background: rgba(5, 8, 14, .5); }
+.xv-in {
+  flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--surface);
+  transform: translateY(24px); opacity: 0; transition: transform .25s cubic-bezier(.2, .85, .25, 1), opacity .2s;
+  padding-top: env(safe-area-inset-top);
+}
+.xv.in .xv-in { transform: none; opacity: 1; }
+.xv-h { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.xv-ic .ic { width: 38px; height: 38px; padding: 8px; box-sizing: border-box; border-radius: 11px; background: #e7f6ee; color: #067647; }
+.xv-t { flex: 1; min-width: 0; }
+.xv-t b { display: block; font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xv-t small { display: block; font-size: 12px; color: var(--ink-3); }
+.xv-h .btn.sm { min-height: 38px; }
+@media (max-width: 520px) { .xv-h .btn span { display: none; } .xv-h .btn.sm { padding: 0 10px; } }
+.xv-tabs { display: flex; gap: 4px; padding: 8px 10px; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--surface-2); scrollbar-width: none; flex: none; }
+.xv-tabs button { flex: none; height: 34px; padding: 0 14px; border-radius: 9px; border: 1px solid transparent; background: none; color: var(--ink-2); font-weight: 600; font-size: 13.5px; cursor: pointer; white-space: nowrap; }
+.xv-tabs button.on { background: var(--surface); border-color: var(--line); color: var(--ink); box-shadow: var(--sh-1); }
+.xv-tabs button.on::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #12b76a; margin-right: 7px; vertical-align: 1px; }
+.xv-body { flex: 1; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-bottom: env(safe-area-inset-bottom); }
+.xv-g { border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: 13px; font-variant-numeric: tabular-nums; }
+.xv-g th, .xv-g td { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px 9px; text-align: left; vertical-align: top; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 30px; }
+.xv-g td { background: var(--surface); color: var(--ink); }
+.xv-g td.n { text-align: right; }
+.xv-g thead th { position: sticky; top: 0; z-index: 2; background: var(--surface-3); color: var(--ink-3); font-weight: 600; font-size: 11.5px; text-align: center; }
+.xv-g tbody th { position: sticky; left: 0; z-index: 1; background: var(--surface-3); color: var(--ink-3); font-weight: 600; font-size: 11.5px; text-align: center; }
+.xv-g thead th.xv-c { left: 0; z-index: 3; }
+.xv-g tr.xv-head td { background: var(--primary); color: var(--on-primary); font-weight: 650; }
+.xv-g tr.xv-first td { font-weight: 750; font-size: 14px; }
+.xv-g tbody tr:hover td { background: var(--surface-2); }
+.xv-g tbody tr.xv-head:hover td { background: var(--primary); }
+.xv-g td:hover { white-space: normal; overflow: visible; }
+.xv-empty { padding: 24px; color: var(--ink-3); font-size: 14px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .xv-ic .ic { background: rgba(60, 203, 127, .14); color: #3ccb7f; } }
+:root[data-theme="dark"] .xv-ic .ic { background: rgba(60, 203, 127, .14); color: #3ccb7f; }
+@media (min-width: 1024px) {
+  .xv { padding: 24px 24px 24px calc(var(--side-w) + 24px); }
+  .xv-in { border-radius: 20px; overflow: hidden; box-shadow: 0 30px 80px -20px rgba(0, 0, 0, .45); border: 1px solid var(--line); padding-top: 0; }
+}
+
 /* ---------- yazdırma / PDF ---------- */
 #print-root { display: none; }
 @media print {
