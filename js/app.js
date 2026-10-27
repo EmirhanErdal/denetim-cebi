@@ -23,7 +23,7 @@ const $tab = document.getElementById('tabbar');
 const S = { settings: {}, templates: [], branches: [], audits: [], lastBackup: null };
 const cur = {
   audit: null, prev: null, open: new Set(), cats: [], bank: new Map(), report: null,
-  actFilter: 'acik', q: '', per: 'ay', month: todayISO().slice(0, 7), week: mondayOf(todayISO()), tplEdit: null,
+  actFilter: 'acik', q: '', fSev: 'all', fBranch: 'all', fSort: 'due', per: 'ay', month: todayISO().slice(0, 7), week: mondayOf(todayISO()), tplEdit: null,
 };
 
 // ---------- küçük yardımcılar ----------
@@ -963,67 +963,148 @@ function allFindings() {
 // "carried": aynı madde sonraki denetimde yine uygunsuz çıktı, takip oradaki bulguda sürüyor
 function openFindings() { return allFindings().filter(x => !x.ans.closed && !x.ans.carried); }
 
+const isDesk = () => window.matchMedia('(min-width: 1024px)').matches;
+const SEV_O = { kritik: 0, major: 1, minor: 2 };
+const SORTS = {
+  due: (a, b) => (a.ans.due || '9').localeCompare(b.ans.due || '9') || SEV_O[a.item.sev] - SEV_O[b.item.sev],
+  sev: (a, b) => SEV_O[a.item.sev] - SEV_O[b.item.sev] || (a.ans.due || '9').localeCompare(b.ans.due || '9'),
+  age: (a, b) => a.audit.date.localeCompare(b.audit.date) || SEV_O[a.item.sev] - SEV_O[b.item.sev],
+};
+const bName = x => getBranch(x.audit.branchId)?.name || x.audit.branchName;
+
+function fcardHTML(x, t) {
+  const closed = !!x.ans.closed;
+  const age = diffDays(x.audit.date, t);
+  const ids = `data-a="${x.audit.id}" data-i="${x.item.id}"`;
+  const key = `${x.item.text} ${x.ans.note || ''} ${x.item.cat} ${bName(x)}`.toLocaleLowerCase('tr');
+  return `<article class="card fc sv-${x.item.sev} ${closed ? 'closed' : ''}" data-s="${esc(key)}">
+    <div class="fc-top"><span class="sev sev-${x.item.sev}">${SEV[x.item.sev].label}</span><span class="grow"></span>
+      ${closed ? `<span class="due ok">${icon('check')} ${trDate(x.ans.closedAt)}</span>` : dueLabel(x.ans.due, false, `data-act="editDue" ${ids}`)}</div>
+    <p class="fc-t">${esc(x.item.text)}</p>
+    <p class="fc-m">${icon('store')}<a href="#/sube/${x.audit.branchId}">${esc(bName(x))}</a><span>·</span><span class="fc-c">${esc(x.item.cat)}</span></p>
+    ${x.ans.note ? `<p class="fc-note">${esc(cap(x.ans.note))}</p>` : ''}
+    ${(x.ans.photos || []).length ? `<div class="photos sm">${thumbs(x.ans.photos)}</div>` : ''}
+    ${closed ? `<p class="fnote ok">${icon('check')} ${esc(x.ans.closeNote || 'Kapatıldı')}</p>${(x.ans.closePhotos || []).length ? `<div class="photos sm">${thumbs(x.ans.closePhotos)}</div>` : ''}` : ''}
+    <footer class="fc-b">
+      <span class="fc-age">${closed ? `${Math.max(0, diffDays(x.audit.date, x.ans.closedAt))} günde kapandı` : age === 0 ? 'Bugün açıldı' : `${age} gündür açık`}
+        · <a href="#/rapor/${x.audit.id}">${trDate(x.audit.date)}</a></span>
+      ${closed ? `<button class="btn ghost sm" data-act="reopenF" ${ids}>${icon('refresh')} Yeniden aç</button>`
+        : `<span class="fc-acts"><button class="icon-btn ghost" data-act="remindOne" ${ids} aria-label="Şubeye hatırlat" title="Şubeye hatırlat">${icon('bell')}</button>
+           <button class="btn primary sm" data-act="closeF" ${ids}>${icon('check')} Kapat</button></span>`}
+    </footer>
+  </article>`;
+}
+
 function viewActions() {
   $app.className = 'v-actions';
-  top({ title: 'Bulgu takibi', sub: 'Termin ve kapanış durumu' });
+  top({ title: 'Bulgular', sub: 'Takip, termin ve kapanış' });
   const t = todayISO();
+  const all = allFindings();
   const open = openFindings();
+  const isLate = x => x.ans.due && x.ans.due < t;
+  const in7 = x => x.ans.due && x.ans.due >= t && diffDays(t, x.ans.due) <= 7;
+  const closedAll = all.filter(x => x.ans.closed);
+  const since90 = addDays(t, -90);
+  const c90 = closedAll.filter(x => x.ans.closedAt >= since90);
+  const avgClose = c90.length ? Math.round(c90.reduce((s, x) => s + Math.max(0, diffDays(x.audit.date, x.ans.closedAt)), 0) / c90.length) : null;
+  const pass = x => (cur.fSev === 'all' || x.item.sev === cur.fSev) && (cur.fBranch === 'all' || x.audit.branchId === cur.fBranch);
   const groups = {
-    acik: open,
-    gecikmis: open.filter(x => x.ans.due && x.ans.due < t),
-    kapandi: allFindings().filter(x => x.ans.closed).sort((p, q) => (q.ans.closedAt || '').localeCompare(p.ans.closedAt || '')),
+    acik: open, gecikmis: open.filter(isLate), hafta: open.filter(in7),
+    kapandi: closedAll.slice().sort((p, q) => (q.ans.closedAt || '').localeCompare(p.ans.closedAt || '')),
   };
-  const list = groups[cur.actFilter];
-  const byB = new Map();
-  for (const x of list) {
-    const k = x.audit.branchId;
-    if (!byB.has(k)) byB.set(k, []);
-    byB.get(k).push(x);
+  const n = k => groups[k].filter(pass).length;
+  const view = isDesk() && S.settings.findView === 'pano' ? 'pano' : 'liste';
+  const sort = SORTS[cur.fSort] || SORTS.due;
+  const crit = open.filter(x => x.item.sev === 'kritik').length;
+  const branchesWith = [...new Set(all.map(x => x.audit.branchId))].map(id => ({ id, name: getBranch(id)?.name || all.find(x => x.audit.branchId === id).audit.branchName })).sort(byName);
+  if (cur.fBranch !== 'all' && !branchesWith.some(b => b.id === cur.fBranch)) cur.fBranch = 'all';
+  const kpi = (k, label, val, sub, cls = '') => `<button class="tile kpi f-kpi ${cls} ${cur.actFilter === k && view === 'liste' ? 'sel' : ''}" data-act="actFilter" data-f="${k}"><small>${label}</small><b>${val}</b><span class="kpi-s"><em>${sub}</em></span></button>`;
+  const chip = (k, l) => `<button class="chip ${cur.actFilter === k ? 'on' : ''} ${k === 'gecikmis' && n(k) ? 'warn' : ''}" data-act="actFilter" data-f="${k}">${l} <b>${n(k)}</b></button>`;
+  const sevChip = (k, l) => `<button class="chip ${cur.fSev === k ? 'on' : ''}" data-act="fSev" data-v="${k}">${k !== 'all' ? `<i class="sev-dot sv-${k}"></i>` : ''}${l}</button>`;
+
+  let body = '';
+  if (view === 'pano') {
+    const cols = [
+      ['late', 'Termini geçen', open.filter(isLate), 'alert'],
+      ['soon', '7 gün içinde', open.filter(in7), 'clock'],
+      ['ok', 'Zamanı var', open.filter(x => !isLate(x) && !in7(x)), 'flag'],
+      ['done', 'Son 30 gün kapanan', groups.kapandi.filter(x => x.ans.closedAt >= addDays(t, -30)), 'check'],
+    ];
+    body = `<div class="pano">${cols.map(([k, l, xs, ic]) => {
+      const list = xs.filter(pass).sort(k === 'done' ? () => 0 : sort);
+      return `<section class="pcol pc-${k}"><header class="pcol-h"><span class="lg ${k === 'done' ? 'ok' : k === 'ok' ? 'neutral' : k}">${icon(ic)}</span><b>${l}</b><em>${list.length}</em></header>
+        <div class="pcol-l">${list.length ? list.map(x => fcardHTML(x, t)).join('') : '<p class="pcol-e">Burada bulgu yok</p>'}</div></section>`;
+    }).join('')}</div>`;
+  } else {
+    const list = groups[cur.actFilter].filter(pass);
+    const byB = new Map();
+    for (const x of list) { if (!byB.has(x.audit.branchId)) byB.set(x.audit.branchId, []); byB.get(x.audit.branchId).push(x); }
+    const sorted = [...byB.entries()].map(([bid, xs]) => [bid, cur.actFilter === 'kapandi' ? xs : xs.sort(sort)])
+      .sort((p, q) => cur.actFilter === 'kapandi' ? 0 : sort(p[1][0], q[1][0]));
+    body = !list.length
+      ? `<div class="empty">${icon(cur.actFilter === 'kapandi' ? 'check' : 'flag')}<p>${cur.fSev !== 'all' || cur.fBranch !== 'all' ? 'Bu filtrelerle eşleşen bulgu yok.'
+        : cur.actFilter === 'kapandi' ? 'Henüz kapanan bulgu yok.' : cur.actFilter === 'gecikmis' ? 'Termini geçen bulgu yok. Harika!' : cur.actFilter === 'hafta' ? 'Önümüzdeki 7 günde termini dolan bulgu yok.' : 'Açık bulgu yok. Her şey yolunda.'}</p></div>`
+      : sorted.map(([bid, xs]) => {
+        const lateN = xs.filter(x => !x.ans.closed && isLate(x)).length;
+        return `<section class="grp">
+          <header class="grp-h"><h3><a href="#/sube/${bid}">${esc(getBranch(bid)?.name || xs[0].audit.branchName)}</a></h3>
+            <span class="grp-n">${xs.length} bulgu${lateN ? ` · <em>${lateN} gecikmiş</em>` : ''}</span><span class="grow"></span>
+            ${cur.actFilter !== 'kapandi' ? `<button class="btn ghost sm" data-act="remind" data-b="${bid}">${icon('bell')} Hepsini hatırlat</button>` : ''}</header>
+          ${xs.map(x => fcardHTML(x, t)).join('')}
+        </section>`;
+      }).join('');
   }
-  const sorted = [...byB.entries()].map(([bid, xs]) => [bid, cur.actFilter === 'kapandi' ? xs : xs.sort((p, q) => (p.ans.due || '9').localeCompare(q.ans.due || '9'))])
-    .sort((p, q) => (p[1][0].ans.due || '9').localeCompare(q[1][0].ans.due || '9'));
-  const chip = (k, l) => `<button class="chip ${cur.actFilter === k ? 'on' : ''} ${k === 'gecikmis' && groups[k].length ? 'warn' : ''}" data-act="actFilter" data-f="${k}">${l} <b>${groups[k].length}</b></button>`;
-  const key = x => `${x.item.text} ${x.ans.note || ''} ${x.item.cat} ${getBranch(x.audit.branchId)?.name || x.audit.branchName}`.toLocaleLowerCase('tr');
 
   $app.innerHTML = `
-    <div class="chips">${chip('acik', 'Açık')}${chip('gecikmis', 'Termini geçen')}${chip('kapandi', 'Kapanan')}</div>
-    ${list.length > 3 || cur.q ? `<label class="search-w">${icon('search')}<input type="search" data-field="q" placeholder="Bulgu, şube ya da not ara" value="${esc(cur.q)}"></label>` : ''}
-    ${!list.length ? `<div class="empty">${icon('flag')}<p>${cur.actFilter === 'kapandi' ? 'Henüz kapanan bulgu yok.' : cur.actFilter === 'gecikmis' ? 'Termini geçen bulgu yok. Harika!' : 'Açık bulgu yok.'}</p></div>` : ''}
+    <div class="tiles f-kpis">
+      ${kpi('acik', `${icon('flag')} Açık bulgu`, open.length, crit ? `<span class="dl neg">${crit} kritik</span>` : 'kritik yok')}
+      ${kpi('gecikmis', `${icon('alert')} Termini geçen`, groups.gecikmis.length, groups.gecikmis.length ? 'hemen ilgilen' : 'gecikme yok', groups.gecikmis.length ? 'warn' : '')}
+      ${kpi('hafta', `${icon('clock')} 7 gün içinde`, groups.hafta.length, 'termini yaklaşan')}
+      ${kpi('kapandi', `${icon('check')} Ort. kapanma`, avgClose == null ? '—' : `${avgClose} <span class="tile-s">gün</span>`, `son 90 gün · ${c90.length} bulgu`)}
+    </div>
+    <div class="f-bar card">
+      <label class="search-w">${icon('search')}<input type="search" data-field="q" placeholder="Bulgu, şube ya da not ara" value="${esc(cur.q)}"></label>
+      <div class="f-row">
+        <div class="chips f-sev">${sevChip('all', 'Tümü')}${sevChip('kritik', 'Kritik')}${sevChip('major', 'Önemli')}${sevChip('minor', 'Düşük')}</div>
+        <select class="f-sel" data-field="fBranch" aria-label="Şube"><option value="all">Tüm şubeler</option>${branchesWith.map(b => `<option value="${b.id}" ${cur.fBranch === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
+        <select class="f-sel" data-field="fSort" aria-label="Sıralama">${[['due', 'Termine göre'], ['sev', 'Öneme göre'], ['age', 'En eski önce']].map(([k, l]) => `<option value="${k}" ${(cur.fSort || 'due') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <div class="seg two f-view" role="group" aria-label="Görünüm">
+          <button class="${view === 'liste' ? 'on' : ''}" data-act="fView" data-v="liste">${icon('list')}<span>Liste</span></button>
+          <button class="${view === 'pano' ? 'on' : ''}" data-act="fView" data-v="pano">${icon('layers')}<span>Pano</span></button>
+        </div>
+      </div>
+    </div>
+    ${view === 'liste' ? `<div class="chips f-tabs">${chip('acik', 'Açık')}${chip('gecikmis', 'Termini geçen')}${chip('hafta', '7 gün içinde')}${chip('kapandi', 'Kapanan')}</div>` : ''}
     <p class="empty-s" data-none hidden>Aramayla eşleşen bulgu yok.</p>
-    ${sorted.map(([bid, xs]) => {
-      const name = getBranch(bid)?.name || xs[0].audit.branchName;
-      return `<section class="grp">
-        <header class="grp-h"><h3><a href="#/sube/${bid}">${esc(name)}</a></h3>
-          ${cur.actFilter !== 'kapandi' ? `<button class="btn link sm" data-act="remind" data-b="${bid}">${icon('bell')} Hatırlat</button>` : ''}</header>
-        ${xs.map(x => `<div class="card fcard ${x.ans.closed ? 'closed' : ''}" data-s="${esc(key(x))}">
-          <div class="item-top"><p class="item-text">${esc(x.item.text)}</p><span class="sev sev-${x.item.sev}">${SEV[x.item.sev].label}</span></div>
-          ${x.ans.note ? `<p class="fnote">${esc(cap(x.ans.note))}</p>` : ''}
-          ${(x.ans.photos || []).length ? `<div class="photos">${thumbs(x.ans.photos)}</div>` : ''}
-          ${x.ans.closed ? `<p class="fnote ok">${icon('check')} ${trDate(x.ans.closedAt)}: ${esc(x.ans.closeNote || 'Kapatıldı')}</p>${(x.ans.closePhotos || []).length ? `<div class="photos">${thumbs(x.ans.closePhotos)}</div>` : ''}` : ''}
-          <div class="fcard-b"><span class="meta">${dueLabel(x.ans.due, x.ans.closed, `data-act="editDue" data-a="${x.audit.id}" data-i="${x.item.id}"`)} <a href="#/rapor/${x.audit.id}">${trDate(x.audit.date)} denetimi</a></span>
-            ${x.ans.closed
-              ? `<button class="btn ghost sm" data-act="reopenF" data-a="${x.audit.id}" data-i="${x.item.id}">Yeniden aç</button>`
-              : `<button class="btn primary sm" data-act="closeF" data-a="${x.audit.id}" data-i="${x.item.id}">${icon('check')} Kapat</button>`}
-          </div></div>`).join('')}
-      </section>`;
-    }).join('')}`;
+    ${body}`;
   applySearch();
   hydratePhotos($app);
 }
 function applySearch() {
   const v = cur.q.toLocaleLowerCase('tr').trim();
   let any = false;
-  $app.querySelectorAll('.grp').forEach(g => {
-    let n = 0;
-    g.querySelectorAll('[data-s]').forEach(c => { const hit = !v || c.dataset.s.includes(v); c.hidden = !hit; if (hit) n++; });
-    g.hidden = !n; if (n) any = true;
-  });
+  $app.querySelectorAll('[data-s]').forEach(c => { const hit = !v || c.dataset.s.includes(v); c.hidden = !hit; if (hit) any = true; });
+  $app.querySelectorAll('.grp').forEach(g => { g.hidden = !g.querySelector('[data-s]:not([hidden])'); });
   const none = $app.querySelector('[data-none]');
   if (none) none.hidden = any || !v;
 }
 F.q = el => { cur.q = el.value; applySearch(); };
+A.fSev = btn => { cur.fSev = btn.dataset.v; rerender(); };
+F.fBranch = (el, ev) => { if (ev === 'change') { cur.fBranch = el.value; rerender(); } };
+F.fSort = (el, ev) => { if (ev === 'change') { cur.fSort = el.value; rerender(); } };
+A.fView = btn => { S.settings.findView = btn.dataset.v; saveSettings(); rerender(); };
+A.remindOne = btn => {
+  const a = getAudit(btn.dataset.a);
+  const x = { audit: a, item: a.items.find(i => i.id === btn.dataset.i), ans: a.answers[btn.dataset.i] };
+  const br = getBranch(a.branchId);
+  shareSheet(reminderMessage(br?.name || a.branchName, [x], S.settings), 'Hatırlatma gönder', br);
+};
 
-A.actFilter = btn => { cur.actFilter = btn.dataset.f; rerender(); };
+A.actFilter = btn => {
+  cur.actFilter = btn.dataset.f;
+  if (S.settings.findView === 'pano' && isDesk()) { S.settings.findView = 'liste'; saveSettings(); }
+  rerender();
+};
 A.remind = btn => {
   const bid = btn.dataset.b;
   const br = getBranch(bid);
