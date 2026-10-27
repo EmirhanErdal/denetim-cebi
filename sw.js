@@ -1,8 +1,8 @@
 // Uygulama dosyalarını telefona saklar: internet yokken de açılır.
-const CACHE = 'denetim-cebi-v8';
+const CACHE = 'denetim-cebi-v9';
 const FILES = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
-  'js/app.js', 'js/db.js', 'js/data.js', 'js/report.js', 'js/excel.js', 'js/demo.js', 'js/ui.js', 'js/tools.js',
+  'js/app.js', 'js/db.js', 'js/data.js', 'js/report.js', 'js/excel.js', 'js/demo.js', 'js/ui.js', 'js/tools.js', 'js/dash.js',
   'vendor/xlsx.full.min.js', 'fonts/inter-latin.woff2', 'fonts/inter-latin-ext.woff2', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 

@@ -8,6 +8,7 @@ import {
   reminderMessage, periodStats, periodText, cashSentence, shipSentence,
 } from './report.js';
 import * as xl from './excel.js';
+import { dashData, kpiHTML, weekHTML, openHTML, catsHTML, karneHTML, trendHTML, mountDash } from './dash.js';
 import { makeDemo } from './demo.js';
 import {
   esc, cap, icon, toast, sheet, ask, pickDate, shareSheet, copy, saveFile, photoSrc, hydratePhotos, storePhotos,
@@ -186,10 +187,8 @@ function viewHome() {
   const empty = !S.audits.length && !S.branches.length;
 
   const next = todo[0];
-  $app.className = 'v-home';
-  $app.innerHTML = `
-    <div class="dcol dmain">
-    <section class="hero o1">
+  const heroHTML = `
+    <section class="hero d-hero">
       <div class="hero-top"><p class="hero-d">${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} · ${d.toLocaleDateString('tr-TR', { weekday: 'long' })}</p>
         ${late.length ? `<a class="hero-alert" href="#/bulgular" data-f="gecikmis">${late.length} geciken bulgu</a>` : ''}</div>
       <h2>${name ? `Merhaba, ${esc(name)}` : 'Merhaba'}</h2>
@@ -197,9 +196,16 @@ function viewHome() {
         : next ? `Sıradaki: <b>${esc(next.b.name)}</b> · ${esc(next.reason.toLocaleLowerCase('tr'))}`
         : empty ? 'İlk denetimini başlatmaya hazırsın.' : 'Bugün sahadaki işlerin seni bekliyor.'}</p>
       <button class="btn accent xl block" data-act="newAudit">${icon('play')} Yeni denetim başlat</button>
-    </section>
-    ${empty ? `
-      <section class="card intro o3">
+    </section>`;
+  const draftsHTML = drafts.length ? `<section class="blk"><h3 class="sec-t">Yarım kalan denetimler</h3>
+      <div class="list">${drafts.map(a => { const s = scoreOf(a); const pct = Math.round((s.total - s.unans) / s.total * 100);
+        return `<a class="card row draft" href="#/denetim/${a.id}"><div class="grow"><b>${esc(a.branchName)}</b><small>${esc(short(tplName(a)))} · ${trDate(a.date)} · ${s.total - s.unans}/${s.total} madde</small>
+        <div class="bar"><i style="width:${pct}%"></i></div></div>${icon('chevron')}</a>`; }).join('')}</div></section>` : '';
+
+  if (empty) {
+    $app.className = 'v-home one';
+    $app.innerHTML = `${heroHTML}
+      <section class="card intro">
         <h3>Nasıl çalışır?</h3>
         <ol class="steps">
           <li><b>Şubede</b> kontrol listesini telefondan işaretle. Uygunsuz maddeye fotoğraf çek, notu sesle söyle.</li>
@@ -210,29 +216,29 @@ function viewHome() {
         </ol>
         <p class="hint">Bütün veriler yalnızca bu cihazda saklanır. Hiçbir sunucuya gitmez.</p>
         <button class="btn ghost block" data-act="loadDemo">${icon('refresh')} Örnek veriyle dene</button>
-      </section>` : ''}
-    ${!empty ? `<div class="tiles o5">
-      <a class="tile" href="#/ozet"><small>Bu ay denetim</small><b>${st.list.length}</b></a>
-      <a class="tile" href="#/ozet"><small>Ortalama puan</small><b>${st.avg ?? '—'}</b></a>
-      <a class="tile" href="#/bulgular" data-f="acik"><small>Açık bulgu</small><b>${open.length}</b></a>
-      <a class="tile ${late.length ? 'warn' : ''}" href="#/bulgular" data-f="gecikmis"><small>Termini geçen</small><b>${late.length}</b></a>
-    </div>` : ''}
-    ${recent.length ? `<section class="blk o8"><h3 class="sec-t">Son denetimler</h3><div class="list">${recent.map(auditRow).join('')}</div></section>` : ''}
-    </div>
-    <div class="dcol dside">
-    ${backupNag()}
-    ${drafts.length ? `<section class="blk o4"><h3 class="sec-t">Yarım kalan denetimler</h3>
-      <div class="list">${drafts.map(a => { const s = scoreOf(a); const pct = Math.round((s.total - s.unans) / s.total * 100);
-        return `<a class="card row draft" href="#/denetim/${a.id}"><div class="grow"><b>${esc(a.branchName)}</b><small>${esc(short(tplName(a)))} · ${trDate(a.date)} · ${s.total - s.unans}/${s.total} madde</small>
-        <div class="bar"><i style="width:${pct}%"></i></div></div>${icon('chevron')}</a>`; }).join('')}</div></section>` : ''}
-    ${soon.length ? `<a class="card row note-soon o6" href="#/bulgular" data-f="acik">${icon('bell')}<div class="grow"><b>${soon.length} bulgunun termini 2 gün içinde</b><small>Şubeye hatırlatma göndermek için dokun</small></div>${icon('chevron')}</a>` : ''}
-    ${todo.length ? `<section class="blk o7"><h3 class="sec-t">Sıradaki şubeler</h3><div class="card todo">${todo.map(x => `
-      <div class="todo-r"><div class="grow"><b>${esc(x.b.name)}</b><small class="${x.cls}">${esc(x.reason)}</small></div>
-      <button class="btn ghost sm" data-act="newAudit" data-branch="${x.b.id}">${icon('play')} Başla</button></div>`).join('')}</div></section>` : ''}
-    </div>
-  `;
-  const side = $app.querySelector('.dside');
-  if (!side.children.length) { side.remove(); $app.classList.add('one'); }
+      </section>`;
+  } else {
+    // kontrol paneli: telefonda tek sütun (DOM sırası), bilgisayarda ızgara
+    const dd = dashData({ done: done(), open, all: allFindings(), branches: S.branches });
+    $app.className = 'v-dash' + (todo.length ? '' : ' no-todo');
+    $app.innerHTML = `${heroHTML}
+      <div class="d-side">
+        ${backupNag()}
+        ${draftsHTML}
+        ${weekHTML(dd)}
+        ${soon.length ? `<a class="card row note-soon" href="#/bulgular" data-f="acik">${icon('bell')}<div class="grow"><b>${soon.length} bulgunun termini 2 gün içinde</b><small>Şubeye hatırlatma göndermek için dokun</small></div>${icon('chevron')}</a>` : ''}
+      </div>
+      ${kpiHTML(dd)}
+      ${trendHTML()}
+      ${openHTML(dd)}
+      ${catsHTML(dd)}
+      ${karneHTML(dd, band)}
+      ${todo.length ? `<section class="blk d-todo"><h3 class="sec-t">Sıradaki şubeler</h3><div class="card todo">${todo.map(x => `
+        <div class="todo-r"><div class="grow"><b>${esc(x.b.name)}</b><small class="${x.cls}">${esc(x.reason)}</small></div>
+        <button class="btn ghost sm" data-act="newAudit" data-branch="${x.b.id}">${icon('play')} Başla</button></div>`).join('')}</div></section>` : ''}
+      ${recent.length ? `<section class="blk d-recent"><h3 class="sec-t">Son denetimler</h3><div class="list">${recent.slice(0, 4).map(auditRow).join('')}</div></section>` : ''}`;
+    mountDash($app, dd);
+  }
   $app.querySelectorAll('[data-f]').forEach(el => el.addEventListener('click', () => { cur.actFilter = el.dataset.f; }));
 }
 
@@ -247,7 +253,7 @@ function backupNag() {
   const n = done().filter(a => !a.demo).length;
   const last = S.lastBackup;
   if (!n || (last && diffDays(last, todayISO()) < 7)) return '';
-  return `<a class="card row nag o2" href="#/ayarlar">${icon('download')}<div class="grow"><b>Yedek almayı unutma</b><small>${last ? `Son yedek: ${trDate(last)}` : 'Henüz hiç yedek alınmadı'}. Telefon değişir ya da tarayıcı verisi silinirse kayıtlar kaybolur.</small></div>${icon('chevron')}</a>`;
+  return `<a class="card row nag" href="#/ayarlar">${icon('download')}<div class="grow"><b>Yedek almayı unutma</b><small>${last ? `Son yedek: ${trDate(last)}` : 'Henüz hiç yedek alınmadı'}. Telefon değişir ya da tarayıcı verisi silinirse kayıtlar kaybolur.</small></div>${icon('chevron')}</a>`;
 }
 
 A.loadDemo = async () => {
