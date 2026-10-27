@@ -1573,7 +1573,7 @@ A.periodXlsx = async () => { try { await xl.exportPeriod(cur.periodLabel, cur.pe
 A.periodXlsxShare = async () => { try { await xl.exportPeriod(cur.periodLabel, cur.periodStats, S.branches, true); } catch (e) { toast(e.message); } };
 
 // ============ AYARLAR ============
-const APP_VERSION = '1.13';
+const APP_VERSION = '1.14';
 // "Ana ekrana ekle" isteği: tarayıcı izin verirse yakalanır, Ayarlar'daki düğme kullanır
 let installEvt = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (location.hash.startsWith('#/ayarlar')) rerender(); });
@@ -1584,6 +1584,7 @@ const setRow = (ic, tone, title, sub, right = '', tag = 'div', attrs = '') =>
   `<${tag} class="set-r" ${attrs}><span class="set-ic t-${tone}">${icon(ic)}</span><span class="grow"><b>${title}</b>${sub ? `<small>${sub}</small>` : ''}</span>${right}</${tag}>`;
 const tgl = (k, def = true) => `<input type="checkbox" class="tgl-in" data-field="tog" data-k="${k}" ${(def ? S.settings[k] !== false : !!S.settings[k]) ? 'checked' : ''}><i class="tgl" aria-hidden="true"></i>`;
 const chev = `<span class="set-chev">${icon('chevron')}</span>`;
+let setIO = null;
 
 async function viewSettings() {
   $app.className = 'v-settings';
@@ -1698,6 +1699,30 @@ async function viewSettings() {
     </div>
   </div>`;
   hydratePhotos($app);
+  // kaydırdıkça bulunulan bölümün sekmesi vurgulanır
+  const navEl = $app.querySelector('.set-nav');
+  const btns = [...navEl.querySelectorAll('[data-to]')];
+  const mark = id => {
+    btns.forEach(b => b.classList.toggle('on', b.dataset.to === id));
+    const b = btns.find(x => x.dataset.to === id);
+    if (b && navEl.scrollWidth > navEl.clientWidth) navEl.scrollTo({ left: b.offsetLeft - 16, behavior: 'smooth' });
+  };
+  const secs = btns.map(b => document.getElementById(b.dataset.to)).filter(Boolean);
+  let curId = '';
+  const onScroll = () => {
+    const lim = navEl.getBoundingClientRect().bottom + 40;
+    let id = secs[0].id;
+    for (const el of secs) if (el.getBoundingClientRect().top <= lim) id = el.id;
+    if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) id = secs[secs.length - 1].id; // sayfa sonu
+    if (id !== curId) { curId = id; mark(id); }
+  };
+  setIO?.(); // ayar değişip sayfa yeniden çizilince eski dinleyici bırakılır
+  window.addEventListener('scroll', onScroll, { passive: true });
+  const off = () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('hashchange', off); setIO = null; };
+  setIO = off;
+  window.addEventListener('hashchange', off);
+  navEl.addEventListener('click', e => { const b = e.target.closest('[data-to]'); if (b) { curId = b.dataset.to; mark(curId); } });
+  onScroll();
 }
 A.install = async () => {
   if (!installEvt) return;
