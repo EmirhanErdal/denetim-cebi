@@ -231,6 +231,8 @@ function viewHome() {
       <button class="btn ghost sm" data-act="newAudit" data-branch="${x.b.id}">${icon('play')} Başla</button></div>`).join('')}</div></section>` : ''}
     </div>
   `;
+  const side = $app.querySelector('.dside');
+  if (!side.children.length) { side.remove(); $app.classList.add('one'); }
   $app.querySelectorAll('[data-f]').forEach(el => el.addEventListener('click', () => { cur.actFilter = el.dataset.f; }));
 }
 

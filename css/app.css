@@ -681,8 +681,7 @@ kbd { display: inline-grid; place-items: center; min-width: 22px; height: 22px; 
   main.v-home, main.v-report { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; align-items: start; }
   .v-cols { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 20px; align-items: start; }
   .dcol { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-  .v-home .dside:empty { display: none; }
-  .v-home:has(.dside:empty) { grid-template-columns: minmax(0, 1fr); }
+  main.v-home.one { grid-template-columns: minmax(0, 1fr); max-width: 900px; }
   .dcol > * { order: 0; }
 
   .hero { padding: 28px 28px 26px; }
