@@ -76,7 +76,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ---------- çerçeve ----------
-const LOGO = `<svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#232c3d"/><stop offset="1" stop-color="#0c111a"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lg)"/><rect x="9" y="8.5" width="14" height="16" rx="3.5" fill="none" stroke="#fff" stroke-opacity=".92" stroke-width="1.8"/><path d="M13 6.8h6" stroke="#fff" stroke-opacity=".5" stroke-width="2.2" stroke-linecap="round"/><path d="M12.6 16.6l2.5 2.5 4.6-5.2" fill="none" stroke="#ff5b1f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const LOGO = `<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#161d2b"/><rect x="9" y="8.5" width="14" height="16" rx="3.5" fill="none" stroke="#fff" stroke-opacity=".92" stroke-width="1.8"/><path d="M13 6.8h6" stroke="#fff" stroke-opacity=".5" stroke-width="2.2" stroke-linecap="round"/><path d="M12.6 16.6l2.5 2.5 4.6-5.2" fill="none" stroke="#ff5b1f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 // Puan halkası (rapor) ve ilerleme halkası (denetim)
 function gauge(score, b) {
@@ -124,6 +124,7 @@ function render() {
   document.body.classList.toggle('no-tab', tab === null);
   if (fn !== viewAudit) cur.audit = null;
   if (fn !== viewReport) cur.report = null;
+  $app.className = '';
   fn(...m.map(decodeURIComponent));
   setTab(tab);
   if (!render.keepScroll) window.scrollTo(0, 0);
@@ -185,8 +186,10 @@ function viewHome() {
   const empty = !S.audits.length && !S.branches.length;
 
   const next = todo[0];
+  $app.className = 'v-home';
   $app.innerHTML = `
-    <section class="hero">
+    <div class="dcol dmain">
+    <section class="hero o1">
       <div class="hero-top"><p class="hero-d">${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} · ${d.toLocaleDateString('tr-TR', { weekday: 'long' })}</p>
         ${late.length ? `<a class="hero-alert" href="#/bulgular" data-f="gecikmis">${late.length} geciken bulgu</a>` : ''}</div>
       <h2>${name ? `Merhaba, ${esc(name)}` : 'Merhaba'}</h2>
@@ -195,9 +198,8 @@ function viewHome() {
         : empty ? 'İlk denetimini başlatmaya hazırsın.' : 'Bugün sahadaki işlerin seni bekliyor.'}</p>
       <button class="btn accent xl block" data-act="newAudit">${icon('play')} Yeni denetim başlat</button>
     </section>
-    ${backupNag()}
     ${empty ? `
-      <section class="card intro">
+      <section class="card intro o3">
         <h3>Nasıl çalışır?</h3>
         <ol class="steps">
           <li><b>Şubede</b> kontrol listesini telefondan işaretle. Uygunsuz maddeye fotoğraf çek, notu sesle söyle.</li>
@@ -206,24 +208,28 @@ function viewHome() {
           <li><b>Bulgular</b> termin tarihleriyle takibe girer. Hatırlatmayı WhatsApp'tan tek dokunuşla gönderirsin.</li>
           <li><b>Hafta ve ay sonunda</b> faaliyet raporu ile şube sıralaması hazırdır.</li>
         </ol>
-        <p class="hint">Bütün veriler yalnızca bu telefonda saklanır. Hiçbir sunucuya gitmez.</p>
+        <p class="hint">Bütün veriler yalnızca bu cihazda saklanır. Hiçbir sunucuya gitmez.</p>
         <button class="btn ghost block" data-act="loadDemo">${icon('refresh')} Örnek veriyle dene</button>
       </section>` : ''}
-    ${drafts.length ? `<h3 class="sec-t">Yarım kalan denetimler</h3>
-      <div class="list">${drafts.map(a => { const s = scoreOf(a); const pct = Math.round((s.total - s.unans) / s.total * 100);
-        return `<a class="card row draft" href="#/denetim/${a.id}"><div class="grow"><b>${esc(a.branchName)}</b><small>${esc(short(tplName(a)))} · ${trDate(a.date)} · ${s.total - s.unans}/${s.total} madde</small>
-        <div class="bar"><i style="width:${pct}%"></i></div></div>${icon('chevron')}</a>`; }).join('')}</div>` : ''}
-    ${!empty ? `<div class="tiles">
+    ${!empty ? `<div class="tiles o5">
       <a class="tile" href="#/ozet"><small>Bu ay denetim</small><b>${st.list.length}</b></a>
       <a class="tile" href="#/ozet"><small>Ortalama puan</small><b>${st.avg ?? '—'}</b></a>
       <a class="tile" href="#/bulgular" data-f="acik"><small>Açık bulgu</small><b>${open.length}</b></a>
       <a class="tile ${late.length ? 'warn' : ''}" href="#/bulgular" data-f="gecikmis"><small>Termini geçen</small><b>${late.length}</b></a>
     </div>` : ''}
-    ${soon.length ? `<a class="card row note-soon" href="#/bulgular" data-f="acik">${icon('bell')}<div class="grow"><b>${soon.length} bulgunun termini 2 gün içinde</b><small>Şubeye hatırlatma göndermek için dokun</small></div>${icon('chevron')}</a>` : ''}
-    ${todo.length ? `<h3 class="sec-t">Sıradaki şubeler</h3><div class="card todo">${todo.map(x => `
+    ${recent.length ? `<section class="blk o8"><h3 class="sec-t">Son denetimler</h3><div class="list">${recent.map(auditRow).join('')}</div></section>` : ''}
+    </div>
+    <div class="dcol dside">
+    ${backupNag()}
+    ${drafts.length ? `<section class="blk o4"><h3 class="sec-t">Yarım kalan denetimler</h3>
+      <div class="list">${drafts.map(a => { const s = scoreOf(a); const pct = Math.round((s.total - s.unans) / s.total * 100);
+        return `<a class="card row draft" href="#/denetim/${a.id}"><div class="grow"><b>${esc(a.branchName)}</b><small>${esc(short(tplName(a)))} · ${trDate(a.date)} · ${s.total - s.unans}/${s.total} madde</small>
+        <div class="bar"><i style="width:${pct}%"></i></div></div>${icon('chevron')}</a>`; }).join('')}</div></section>` : ''}
+    ${soon.length ? `<a class="card row note-soon o6" href="#/bulgular" data-f="acik">${icon('bell')}<div class="grow"><b>${soon.length} bulgunun termini 2 gün içinde</b><small>Şubeye hatırlatma göndermek için dokun</small></div>${icon('chevron')}</a>` : ''}
+    ${todo.length ? `<section class="blk o7"><h3 class="sec-t">Sıradaki şubeler</h3><div class="card todo">${todo.map(x => `
       <div class="todo-r"><div class="grow"><b>${esc(x.b.name)}</b><small class="${x.cls}">${esc(x.reason)}</small></div>
-      <button class="btn ghost sm" data-act="newAudit" data-branch="${x.b.id}">${icon('play')} Başla</button></div>`).join('')}</div>` : ''}
-    ${recent.length ? `<h3 class="sec-t">Son denetimler</h3><div class="list">${recent.map(auditRow).join('')}</div>` : ''}
+      <button class="btn ghost sm" data-act="newAudit" data-branch="${x.b.id}">${icon('play')} Başla</button></div>`).join('')}</div></section>` : ''}
+    </div>
   `;
   $app.querySelectorAll('[data-f]').forEach(el => el.addEventListener('click', () => { cur.actFilter = el.dataset.f; }));
 }
@@ -239,7 +245,7 @@ function backupNag() {
   const n = done().filter(a => !a.demo).length;
   const last = S.lastBackup;
   if (!n || (last && diffDays(last, todayISO()) < 7)) return '';
-  return `<a class="card row nag" href="#/ayarlar">${icon('download')}<div class="grow"><b>Yedek almayı unutma</b><small>${last ? `Son yedek: ${trDate(last)}` : 'Henüz hiç yedek alınmadı'}. Telefon değişir ya da tarayıcı verisi silinirse kayıtlar kaybolur.</small></div>${icon('chevron')}</a>`;
+  return `<a class="card row nag o2" href="#/ayarlar">${icon('download')}<div class="grow"><b>Yedek almayı unutma</b><small>${last ? `Son yedek: ${trDate(last)}` : 'Henüz hiç yedek alınmadı'}. Telefon değişir ya da tarayıcı verisi silinirse kayıtlar kaybolur.</small></div>${icon('chevron')}</a>`;
 }
 
 A.loadDemo = async () => {
@@ -383,7 +389,7 @@ function viewAudit(id) {
   const a = getAudit(id);
   if (!a) return notFound();
   if (a.status === 'tamam') { location.replace('#/rapor/' + id); return; }
-  if (cur.audit !== a) { cur.open = new Set(); cur.bank = buildBank(a); }
+  if (cur.audit !== a) { cur.open = new Set(); cur.bank = buildBank(a); cur.focus = null; }
   cur.audit = a;
   cur.prev = findPrev(a, S.audits);
   const cats = new Map();
@@ -392,8 +398,20 @@ function viewAudit(id) {
   auditTop(a);
 
   const openPrev = openFindings().filter(x => x.audit.branchId === a.branchId && tplId(x.audit) === tplId(a));
+  $app.className = 'v-audit';
   $app.innerHTML = `
     <div class="prog" id="prog">${progHTML(a)}</div>
+    <div class="aud">
+    <aside class="cat-nav" aria-label="Başlıklar">
+      <p class="cn-t">Başlıklar</p>
+      ${cur.cats.map(([cat, items], ci) => `<button class="cn-r" data-act="jumpTo" data-to="cat-${ci}"><span>${esc(cat)}</span><em data-navn="${ci}">${navCount(a, items)}</em></button>`).join('')}
+      <button class="cn-r" data-act="jumpTo" data-to="tools"><span>Ek kontroller</span>${icon('cash')}</button>
+      <button class="cn-r" data-act="jumpTo" data-to="gen"><span>Genel değerlendirme</span>${icon('edit')}</button>
+      <button class="btn primary block cn-finish" data-act="finish">${icon('check')} Bitir ve raporla</button>
+      <div class="kb-hint"><p><b>Klavye</b></p>
+        <p><kbd>↑</kbd><kbd>↓</kbd> madde seç</p><p><kbd>1</kbd> uygun · <kbd>2</kbd> değil · <kbd>3</kbd> yok</p><p><kbd>Enter</kbd> not yaz · <kbd>Esc</kbd> geri</p></div>
+    </aside>
+    <div class="aud-main">
     ${openPrev.length ? `<p class="card row warnline">${icon('alert')}<span class="grow">Bu şubede önceki denetimlerden <b>${openPrev.length} açık bulgu</b> var. İlgili maddeler <em>turuncu</em> işaretli. Uygun bulursan kendiliğinden kapanır.</span></p>` : ''}
     ${(a.fields || []).length ? `<section class="card pad">
       <header class="card-h"><h3>Denetim bilgileri</h3><small class="muted">isteğe bağlı</small></header>
@@ -407,7 +425,7 @@ function viewAudit(id) {
         <button class="btn ghost sm cat-ok" data-act="catOk" data-cat="${ci}">${icon('check')} Kalanları “uygun” işaretle</button>
       </section>`).join('')}
     <section class="cat" id="tools">${toolsHTML(a)}</section>
-    <section class="cat general">
+    <section class="cat general" id="gen">
       <header class="cat-h"><h2>Genel değerlendirme</h2></header>
       <div class="card pad">
         <label class="lbl">Denetçi notu (rapora eklenir)</label>
@@ -418,9 +436,61 @@ function viewAudit(id) {
     </section>
     <div class="finishbar"><button class="btn primary xl block" data-act="finish">${icon('check')} Denetimi bitir ve raporla</button></div>
     <button class="btn link danger-t block" data-act="discard">Bu denetimi sil</button>
+    </div></div>
   `;
   hydratePhotos($app);
+  if (cur.focus) document.getElementById('it-' + cur.focus)?.classList.add('kb');
 }
+
+function navCount(a, items) {
+  const n = items.filter(i => a.answers[i.id]?.r).length;
+  const bad = items.filter(i => a.answers[i.id]?.r === 'nok').length;
+  return `${bad ? `<i>${bad}</i>` : ''}${n}/${items.length}`;
+}
+A.jumpTo = btn => {
+  const el = document.getElementById(btn.dataset.to);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+// ---------- klavye: bilgisayarda hızlı denetim (↑↓ seç, 1/2/3 cevap, Enter not, Esc geri) ----------
+function setFocus(id, scroll = true) {
+  if (!id) return;
+  document.querySelector('.item.kb')?.classList.remove('kb');
+  cur.focus = id;
+  const el = document.getElementById('it-' + id);
+  if (!el) return;
+  el.classList.add('kb');
+  if (scroll) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+document.addEventListener('keydown', e => {
+  if (!cur.audit || document.querySelector('.sheet-wrap, .lock')) return;
+  const t = e.target;
+  if (t.matches?.('input, textarea, select')) {
+    if (e.key === 'Escape') { t.blur(); const it = t.closest('.item'); if (it) setFocus(it.dataset.item, false); }
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const ids = cur.audit.items.map(i => i.id);
+  const i = ids.indexOf(cur.focus);
+  const k = e.key;
+  if (k === 'ArrowDown' || k === 'j') { e.preventDefault(); setFocus(ids[Math.min(ids.length - 1, i + 1)]); }
+  else if (k === 'ArrowUp' || k === 'k') { e.preventDefault(); setFocus(ids[Math.max(0, i - 1)]); }
+  else if (i >= 0 && (k === '1' || k === '2' || k === '3')) {
+    e.preventDefault();
+    const r = { 1: 'ok', 2: 'nok', 3: 'na' }[k];
+    if (cur.audit.answers[cur.focus]?.r !== r) document.querySelector(`#it-${cur.focus} [data-r="${r}"]`).click();
+    if (r === 'nok') document.querySelector(`#it-${cur.focus} textarea`)?.focus();
+    else if (i < ids.length - 1) setFocus(ids[i + 1]);
+  } else if (i >= 0 && k === 'Enter') {
+    e.preventDefault();
+    if (!document.querySelector(`#it-${cur.focus} textarea`)) { cur.open.add(cur.focus); refreshItem(cur.focus); }
+    document.querySelector(`#it-${cur.focus} textarea`)?.focus();
+  }
+});
+$app.addEventListener('click', e => {
+  const it = cur.audit && e.target.closest('.item');
+  if (it) setFocus(it.dataset.item, false);
+});
 
 function auditTop(a) {
   top({ title: getBranch(a.branchId)?.name || a.branchName, sub: `${short(tplName(a))} · ${trDate(a.date)}`, back: '#/',
@@ -460,7 +530,7 @@ function itemHTML(a, it) {
   const rep = isRepeat(cur.prev, it.id) && !pa.closed;
   const seg = (r, label, ic) => `<button class="s-${r} ${ans.r === r ? 'on' : ''}" data-act="ans" data-r="${r}" aria-pressed="${ans.r === r}">${icon(ic)}<span>${label}</span></button>`;
   const has = (ans.note || (ans.photos || []).length) && !open;
-  return `<article class="item ${ans.r ? 'r-' + ans.r : ''} ${rep ? 'rep' : ''}" id="it-${it.id}" data-item="${it.id}">
+  return `<article class="item ${ans.r ? 'r-' + ans.r : ''} ${rep ? 'rep' : ''} ${cur.focus === it.id ? 'kb' : ''}" id="it-${it.id}" data-item="${it.id}">
     <div class="item-top"><p class="item-text">${esc(it.text)}</p><span class="sev sev-${it.sev}">${SEV[it.sev].label}</span></div>
     ${rep ? `<p class="prevflag">${icon('alert')} Önceki denetimde uygun değildi${pa.note ? `: “${esc(pa.note)}”` : ''}</p>` : ''}
     <div class="seg">${seg('ok', 'Uygun', 'check')}${seg('nok', 'Uygun değil', 'x')}${seg('na', 'Yok', 'minus')}</div>
@@ -487,6 +557,8 @@ function refreshItem(id) {
   const ci = cur.cats.findIndex(([c]) => c === it.cat);
   const n = $app.querySelector(`[data-catn="${ci}"]`);
   if (n) n.innerHTML = catCount(cur.audit, cur.cats[ci][1]);
+  const nv = $app.querySelector(`[data-navn="${ci}"]`);
+  if (nv) nv.innerHTML = navCount(cur.audit, cur.cats[ci][1]);
   document.getElementById('prog').innerHTML = progHTML(cur.audit);
   return nw;
 }
@@ -689,8 +761,10 @@ function viewReport(id) {
   const mgr = a.sign?.manager, me = a.sign?.auditor;
   top({ title: br?.name || a.branchName, sub: `${short(tplName(a))} · ${trDate(a.date)}`, back: '#/' });
 
+  $app.className = 'v-report';
   $app.innerHTML = `
-    <section class="scorecard">
+    <div class="dcol dmain">
+    <section class="scorecard o1">
       ${gauge(s.score, band(s.score, s.crit))}
       <div class="sc-info"><p class="sc-rate"><i class="b-${band(s.score, s.crit)}"></i>${rating(s.score, s.crit)}</p>
         <p>${s.ok} uygun · ${s.nok} bulgu${s.crit ? ` · <b>${s.crit} kritik</b>` : ''}${s.na ? ` · ${s.na} kapsam dışı` : ''}</p>
@@ -698,46 +772,14 @@ function viewReport(id) {
         <p class="sc-diff"><span>${mins ? `${hhmm(a.startedAt)}–${hhmm(a.finishedAt)} · ${duration(mins)}` : ''}${a.geo ? `${mins ? ' · ' : ''}<a href="https://maps.google.com/?q=${a.geo.lat},${a.geo.lng}" target="_blank" rel="noopener">konum</a>` : ''}</span></p>
       </div>
     </section>
-
-    <div class="actgrid">
-      <button class="act" data-act="print">${icon('printer')}<span>PDF / Yazdır</span></button>
-      <button class="act" data-act="xlsx">${icon('table')}<span>Excel indir</span></button>
-      <button class="act" data-act="sendFindings">${icon('chat')}<span>Şubeye gönder</span></button>
-      <button class="act" data-act="xlsxShare">${icon('share')}<span>Excel'i paylaş</span></button>
-    </div>
-
-    <section class="card pad">
-      <header class="card-h"><h3>İmzalar</h3><small class="muted">PDF'te görünür</small></header>
-      <div class="signs">
-        <button class="sign-box" data-act="signMgr">${mgr ? `<img data-ph="${mgr.ph}" alt="">` : `<span class="sign-empty">${icon('pen')} İmza al</span>`}
-          <small>Şube sorumlusu</small><b>${esc(mgr?.name || br?.manager || '—')}</b></button>
-        <button class="sign-box" data-act="signMe">${me ? `<img data-ph="${me.ph}" alt="">` : `<span class="sign-empty">${icon('pen')} İmzamı ekle</span>`}
-          <small>Denetçi</small><b>${esc(me?.name || S.settings.auditor || '—')}</b></button>
-      </div>
-    </section>
-
-    <section class="card pad">
+    <section class="card pad o4">
       <header class="card-h"><h3>Rapor metni</h3>
         <button class="btn link sm" data-act="copyReport">${icon('copy')} Kopyala</button>
         <button class="btn link sm" data-act="regen">${icon('refresh')} Yenile</button></header>
       <textarea class="report-text" data-field="report">${esc(text)}</textarea>
       <p class="hint">Metin otomatik yazıldı. İstediğin gibi düzeltebilirsin, PDF ve Excel bu hâlini kullanır.</p>
     </section>
-
-    <section class="card pad">
-      <header class="card-h"><h3>Başlık puanları</h3></header>
-      <div class="cs-list">${cs.map(c => `<div class="cs-r"><span class="cs-n">${esc(c.cat)}${c.nok ? ` <em>${c.nok}</em>` : ''}</span>
-        <span class="rb"><i class="b-${band(c.score, c.crit)}" style="width:${c.score ?? 0}%"></i></span><b>${c.score ?? '—'}</b></div>`).join('')}</div>
-    </section>
-
-    ${info.length || a.cash || ss.n ? `<section class="card pad">
-      <header class="card-h"><h3>Denetim bilgileri ve ek kontroller</h3></header>
-      ${info.length ? `<div class="kv">${info.map(([l, v]) => `<p><span>${esc(l)}</span><b>${esc(v)}</b></p>`).join('')}</div>` : ''}
-      ${a.cash ? `<button class="card row tool ${cd ? 'bad' : 'good'}" data-act="cash">${icon('cash')}<div class="grow"><b>Kasa sayımı</b><small>${esc(cashSentence(a.cash))}</small></div>${icon('chevron')}</button>` : ''}
-      ${ss.n ? `<button class="card row tool ${ss.bad ? 'bad' : 'good'}" data-act="ships">${icon('barcode')}<div class="grow"><b>Gönderi kontrolü</b><small>${esc(shipSentence(a.ships))}</small></div>${icon('chevron')}</button>` : ''}
-    </section>` : ''}
-
-    <section class="card pad">
+    <section class="card pad o7">
       <header class="card-h"><h3>Bulgular (${f.length})</h3></header>
       ${f.length ? `<div class="flist">${f.map((x, i) => `
         <div class="fitem ${x.ans.closed ? 'closed' : ''}">
@@ -750,10 +792,38 @@ function viewReport(id) {
               : x.ans.carried ? `<a class="due soon" href="#/rapor/${x.ans.carried}">Sonraki denetimde yine tespit edildi</a>` : dueLabel(x.ans.due)}</p>
           </div></div>`).join('')}</div>` : '<p class="empty-s">Uygunsuzluk yok. Tebrikler şubeye!</p>'}
     </section>
-
-    <div class="row-gap">
+    <div class="row-gap o8">
       <button class="btn ghost" data-act="reopen">${icon('edit')} Denetimi düzenle</button>
       <button class="btn ghost danger-t" data-act="delAudit">${icon('trash')} Sil</button>
+    </div>
+    </div>
+    <div class="dcol dside">
+    <div class="actgrid o2">
+      <button class="act" data-act="print">${icon('printer')}<span>PDF / Yazdır</span></button>
+      <button class="act" data-act="xlsx">${icon('table')}<span>Excel indir</span></button>
+      <button class="act" data-act="sendFindings">${icon('chat')}<span>Şubeye gönder</span></button>
+      <button class="act" data-act="xlsxShare">${icon('share')}<span>Excel'i paylaş</span></button>
+    </div>
+    <section class="card pad o3">
+      <header class="card-h"><h3>İmzalar</h3><small class="muted">PDF'te görünür</small></header>
+      <div class="signs">
+        <button class="sign-box" data-act="signMgr">${mgr ? `<img data-ph="${mgr.ph}" alt="">` : `<span class="sign-empty">${icon('pen')} İmza al</span>`}
+          <small>Şube sorumlusu</small><b>${esc(mgr?.name || br?.manager || '—')}</b></button>
+        <button class="sign-box" data-act="signMe">${me ? `<img data-ph="${me.ph}" alt="">` : `<span class="sign-empty">${icon('pen')} İmzamı ekle</span>`}
+          <small>Denetçi</small><b>${esc(me?.name || S.settings.auditor || '—')}</b></button>
+      </div>
+    </section>
+    <section class="card pad o5">
+      <header class="card-h"><h3>Başlık puanları</h3></header>
+      <div class="cs-list">${cs.map(c => `<div class="cs-r"><span class="cs-n">${esc(c.cat)}${c.nok ? ` <em>${c.nok}</em>` : ''}</span>
+        <span class="rb"><i class="b-${band(c.score, c.crit)}" style="width:${c.score ?? 0}%"></i></span><b>${c.score ?? '—'}</b></div>`).join('')}</div>
+    </section>
+    ${info.length || a.cash || ss.n ? `<section class="card pad o6">
+      <header class="card-h"><h3>Denetim bilgileri ve ek kontroller</h3></header>
+      ${info.length ? `<div class="kv">${info.map(([l, v]) => `<p><span>${esc(l)}</span><b>${esc(v)}</b></p>`).join('')}</div>` : ''}
+      ${a.cash ? `<button class="card row tool ${cd ? 'bad' : 'good'}" data-act="cash">${icon('cash')}<div class="grow"><b>Kasa sayımı</b><small>${esc(cashSentence(a.cash))}</small></div>${icon('chevron')}</button>` : ''}
+      ${ss.n ? `<button class="card row tool ${ss.bad ? 'bad' : 'good'}" data-act="ships">${icon('barcode')}<div class="grow"><b>Gönderi kontrolü</b><small>${esc(shipSentence(a.ships))}</small></div>${icon('chevron')}</button>` : ''}
+    </section>` : ''}
     </div>`;
   autosize($app.querySelector('.report-text'));
   hydratePhotos($app);
@@ -886,6 +956,7 @@ function allFindings() {
 function openFindings() { return allFindings().filter(x => !x.ans.closed && !x.ans.carried); }
 
 function viewActions() {
+  $app.className = 'v-actions';
   top({ title: 'Bulgu takibi', sub: 'Termin ve kapanış durumu' });
   const t = todayISO();
   const open = openFindings();
@@ -1001,6 +1072,7 @@ A.reopenF = async btn => {
 
 // ============ ŞUBELER ============
 function viewBranches() {
+  $app.className = 'v-branches';
   top({ title: 'Şubeler', sub: `${S.branches.length} şube / birim`, right: `<button class="tb-act" data-act="addBranch" aria-label="Şube ekle">${icon('plus')}</button>` });
   const open = openFindings();
   const list = [...S.branches].sort(byName);
@@ -1066,6 +1138,7 @@ function branchForm(b) {
 }
 
 function viewBranch(id) {
+  $app.className = 'v-branch';
   const b = getBranch(id);
   if (!b) return notFound();
   const list = done().filter(a => a.branchId === id).sort(desc);
@@ -1140,7 +1213,9 @@ function viewSummary() {
   top({ title: pr.weekly ? 'Haftalık faaliyet' : 'Aylık özet', sub: pr.label });
   const st = periodStats(pr.from, pr.to, S.audits, S.branches);
   cur.periodStats = st; cur.periodLabel = pr.label;
+  $app.className = 'v-summary';
   $app.innerHTML = `
+    <div class="sum-bar">
     <div class="seg two">
       <button class="${cur.per === 'hafta' ? 'on' : ''}" data-act="per" data-p="hafta">Hafta</button>
       <button class="${cur.per === 'ay' ? 'on' : ''}" data-act="per" data-p="ay">Ay</button>
@@ -1150,16 +1225,18 @@ function viewSummary() {
       ${pr.weekly ? `<b class="grow center">${esc(pr.label)}</b>` : `<input type="month" data-field="month" value="${cur.month}">`}
       <button class="btn ghost sm" data-act="mon" data-d="1" aria-label="Sonraki">${icon('chevron')}</button>
     </div>
+    </div>
     <div class="tiles">
       <div class="tile"><small>Denetim</small><b>${st.list.length}</b></div>
       <div class="tile"><small>Ortalama puan</small><b>${st.avg ?? '—'}</b></div>
       <div class="tile"><small>Bulgu / kritik</small><b>${st.nok}<span class="tile-s"> / ${st.crit}</span></b></div>
       <div class="tile"><small>Kapatılan bulgu</small><b>${st.closedInPeriod}</b></div>
     </div>
-    ${st.list.length ? `
+    ${st.list.length ? `<div class="v-cols"><div class="dcol dmain">
     <section class="card pad"><header class="card-h"><h3>Yöneticiye ${pr.weekly ? 'haftalık rapor' : 'aylık özet'}</h3><button class="btn link sm" data-act="copyPeriod">${icon('copy')} Kopyala</button></header>
       <textarea class="report-text" data-period-text>${esc(periodText(pr.label, st, S.settings, pr.weekly))}</textarea>
       <div class="row-gap"><button class="btn ghost" data-act="sharePeriod">${icon('chat')} Mesajla gönder</button></div></section>
+    </div><div class="dcol dside">
     <div class="actgrid two">
       <button class="act" data-act="periodXlsx">${icon('table')}<span>Excel indir</span></button>
       <button class="act" data-act="periodXlsxShare">${icon('share')}<span>Excel'i paylaş</span></button>
@@ -1169,7 +1246,7 @@ function viewSummary() {
         <span class="rb"><i class="b-${band(r.avg, r.crit)}" style="width:${r.avg || 0}%"></i></span><b class="rv">${r.avg ?? '—'}</b></a>`).join('')}</div>
     </section>
     ${st.top.length ? `<section class="card pad"><header class="card-h"><h3>En sık bulgular</h3></header>
-      <ul class="plain">${st.top.map(e => `<li><span class="cnt">${e.n}×</span>${esc(e.item.text)}<small> · ${e.branches.size} şube</small></li>`).join('')}</ul></section>` : ''}`
+      <ul class="plain">${st.top.map(e => `<li><span class="cnt">${e.n}×</span>${esc(e.item.text)}<small> · ${e.branches.size} şube</small></li>`).join('')}</ul></section>` : ''}</div></div>`
     : `<div class="empty">${icon('chart')}<p>${esc(pr.label)} döneminde tamamlanmış denetim yok.</p></div>`}`;
   const ta = $app.querySelector('[data-period-text]');
   if (ta) autosize(ta);
@@ -1196,6 +1273,7 @@ const toggle = (k, label, sub, def = true) => `<label class="sw"><span class="gr
   <input type="checkbox" data-field="tog" data-k="${k}" ${(def ? S.settings[k] !== false : !!S.settings[k]) ? 'checked' : ''}><i></i></label>`;
 
 async function viewSettings() {
+  $app.className = 'v-settings';
   top({ title: 'Ayarlar' });
   const hasDemo = S.audits.some(a => a.demo) || S.branches.some(b => b.demo);
   let usage = '';
@@ -1397,6 +1475,7 @@ A.wipe = async () => {
 };
 
 function viewHelp() {
+  $app.className = 'v-help';
   top({ title: 'Nasıl kullanılır?', back: '#/ayarlar' });
   const sec = (ic, t, body) => `<section class="card pad help"><h3>${icon(ic)} ${t}</h3>${body}</section>`;
   $app.innerHTML = `
@@ -1416,6 +1495,7 @@ function viewHelp() {
 
 // ---------- denetim türleri ve kontrol listesi düzenleyici ----------
 function viewChecklist() {
+  $app.className = 'v-list';
   if (!getTpl(cur.tplEdit)) cur.tplEdit = S.templates[0].id;
   const T = getTpl(cur.tplEdit);
   top({ title: 'Kontrol listeleri', sub: `${S.templates.length} denetim türü`, back: '#/ayarlar' });
@@ -1613,6 +1693,10 @@ async function boot() {
   }
   document.body.classList.toggle('big', !!S.settings.big);
   applyTheme();
+  // bilgisayardaki kenar menü: logo ve "Yeni denetim" düğmesi
+  const sl = document.querySelector('.side-logo');
+  if (sl) sl.innerHTML = LOGO;
+  $tab.addEventListener('click', e => { if (e.target.closest('[data-side-new]')) pickBranch(); });
   if (S.settings.pinHash) await showLock();
   render();
   if (!S.settings.onboarded && !S.settings.auditor && !S.audits.length) setTimeout(onboarding, 400);
