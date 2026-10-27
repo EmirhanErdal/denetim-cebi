@@ -8,7 +8,7 @@ import {
   reminderMessage, periodStats, periodText, cashSentence, shipSentence,
 } from './report.js';
 import * as xl from './excel.js';
-import { dashData, kpiHTML, weekHTML, openHTML, catsHTML, karneHTML, trendHTML, mountDash, mountLine, spark as miniSpark } from './dash.js';
+import { dashData, kpiHTML, weekHTML, openHTML, catsHTML, karneHTML, trendHTML, mountDash, mountLine, bindTips, spark as miniSpark } from './dash.js';
 import { makeDemo } from './demo.js';
 import {
   esc, cap, icon, toast, sheet, ask, pickDate, shareSheet, copy, saveFile, photoSrc, hydratePhotos, storePhotos,
@@ -1415,58 +1415,146 @@ A.plan = async btn => {
 };
 
 // ============ ÖZET (hafta / ay) ============
-function period() {
+function period(shift = 0) {
   if (cur.per === 'hafta') {
-    const from = cur.week, to = addDays(from, 6);
+    const from = addDays(cur.week, 7 * shift), to = addDays(from, 6);
     return { from, to, label: rangeLabel(from, to), weekly: true };
   }
   const [y, m] = cur.month.split('-').map(Number);
-  return { from: `${cur.month}-01`, to: todayISO(new Date(y, m, 0)), label: monthLabel(cur.month), weekly: false };
+  const d = new Date(y, m - 1 + shift, 1);
+  const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return { from: `${ym}-01`, to: todayISO(new Date(d.getFullYear(), d.getMonth() + 1, 0)), label: monthLabel(ym), weekly: false };
 }
 
 function viewSummary() {
-  const pr = period();
+  $app.className = 'v-summary';
+  const pr = period(), pp = period(-1);
+  const t = todayISO();
   top({ title: pr.weekly ? 'Haftalık faaliyet' : 'Aylık özet', sub: pr.label });
   const st = periodStats(pr.from, pr.to, S.audits, S.branches);
+  const ps = periodStats(pp.from, pp.to, S.audits, S.branches);
   cur.periodStats = st; cur.periodLabel = pr.label;
-  $app.className = 'v-summary';
-  $app.innerHTML = `
-    <div class="sum-bar">
-    <div class="seg two">
-      <button class="${cur.per === 'hafta' ? 'on' : ''}" data-act="per" data-p="hafta">Hafta</button>
-      <button class="${cur.per === 'ay' ? 'on' : ''}" data-act="per" data-p="ay">Ay</button>
-    </div>
+  const isNow = pr.from <= t && t <= pr.to;
+  const dl = (a, b, good = 'up', unit = '') => {
+    if (a == null || b == null) return '<span class="dl flat"></span>';
+    const v = a - b;
+    if (!v) return '<span class="dl flat">= aynı</span>';
+    const ok = (v > 0) === (good === 'up');
+    return `<span class="dl ${ok ? 'pos' : 'neg'}">${v > 0 ? '▲' : '▼'} ${Math.abs(v)}${unit}</span>`;
+  };
+  const metric = (label, val, d, sub) => `<div class="sm-m"><small>${label}</small><b>${val}</b><span>${d}<em>${sub}</em></span></div>`;
+
+  const toolbar = `<div class="sum-bar card">
+    <div class="seg two"><button class="${cur.per === 'hafta' ? 'on' : ''}" data-act="per" data-p="hafta">Hafta</button><button class="${cur.per === 'ay' ? 'on' : ''}" data-act="per" data-p="ay">Ay</button></div>
     <div class="month-pick">
-      <button class="btn ghost sm" data-act="mon" data-d="-1" aria-label="Önceki">${icon('back')}</button>
-      ${pr.weekly ? `<b class="grow center">${esc(pr.label)}</b>` : `<input type="month" data-field="month" value="${cur.month}">`}
-      <button class="btn ghost sm" data-act="mon" data-d="1" aria-label="Sonraki">${icon('chevron')}</button>
+      <button class="btn ghost sm" data-act="mon" data-d="-1" aria-label="Önceki dönem">${icon('back')}</button>
+      ${pr.weekly ? `<b class="grow center">${esc(pr.label)}</b>` : `<input type="month" data-field="month" value="${cur.month}" aria-label="Ay">`}
+      <button class="btn ghost sm" data-act="mon" data-d="1" aria-label="Sonraki dönem">${icon('chevron')}</button>
     </div>
-    </div>
-    <div class="tiles">
-      <div class="tile"><small>Denetim</small><b>${st.list.length}</b></div>
-      <div class="tile"><small>Ortalama puan</small><b>${st.avg ?? '—'}</b></div>
-      <div class="tile"><small>Bulgu / kritik</small><b>${st.nok}<span class="tile-s"> / ${st.crit}</span></b></div>
-      <div class="tile"><small>Kapatılan bulgu</small><b>${st.closedInPeriod}</b></div>
-    </div>
-    ${st.list.length ? `<div class="v-cols"><div class="dcol dmain">
-    <section class="card pad"><header class="card-h"><h3>Yöneticiye ${pr.weekly ? 'haftalık rapor' : 'aylık özet'}</h3><button class="btn link sm" data-act="copyPeriod">${icon('copy')} Kopyala</button></header>
-      <textarea class="report-text" data-period-text>${esc(periodText(pr.label, st, S.settings, pr.weekly))}</textarea>
-      <div class="row-gap"><button class="btn ghost" data-act="sharePeriod">${icon('chat')} Mesajla gönder</button></div></section>
-    </div><div class="dcol dside">
-    <div class="actgrid two">
-      <button class="act" data-act="periodXlsx">${icon('table')}<span>Excel'i aç</span></button>
-      <button class="act" data-act="periodXlsxShare">${icon('share')}<span>Excel'i paylaş</span></button>
-    </div>
-    <section class="card pad"><header class="card-h"><h3>Şube sıralaması</h3></header>
-      <div class="rank">${st.ranking.map((r, i) => `<a class="rank-r" href="#/sube/${r.id}"><span class="rk">${i + 1}</span><span class="rn">${esc(r.name)}<small>${r.n} denetim · ${r.nok} bulgu</small></span>
-        <span class="rb"><i class="b-${band(r.avg, r.crit)}" style="width:${r.avg || 0}%"></i></span><b class="rv">${r.avg ?? '—'}</b></a>`).join('')}</div>
+    ${!isNow ? `<button class="btn link sm" data-act="perNow">${icon('calendar')} Bu ${pr.weekly ? 'hafta' : 'ay'}</button>` : ''}
+    ${st.list.length ? `<div class="sum-acts">
+      <button class="btn ghost sm" data-act="periodXlsx">${icon('table')}<span>Excel'i aç</span></button>
+      <button class="btn ghost sm" data-act="periodXlsxShare">${icon('share')}<span>Paylaş</span></button>
+    </div>` : ''}
+  </div>`;
+
+  if (!st.list.length) {
+    $app.innerHTML = `${toolbar}<div class="empty">${icon('chart')}<p>${esc(pr.label)} döneminde tamamlanmış denetim yok.</p>
+      ${ps.list.length ? `<button class="btn ghost" data-act="mon" data-d="-1">${icon('back')} Önceki döneme bak</button>` : ''}</div>`;
+    return;
+  }
+
+  // dönem içi dağılımlar
+  const fs = st.list.flatMap(a => findings(a).map(x => ({ ...x, audit: a })));
+  const sev = { kritik: 0, major: 0, minor: 0 };
+  const cats = new Map(), types = new Map();
+  for (const x of fs) { sev[x.item.sev]++; cats.set(x.item.cat, (cats.get(x.item.cat) || 0) + 1); }
+  for (const a of st.list) { const k = short(tplName(a)); types.set(k, (types.get(k) || 0) + 1); }
+  const closedNow = fs.filter(x => x.ans.closed).length;
+  const catList = [...cats.entries()].sort((p, q) => q[1] - p[1]).slice(0, 6);
+  const catMax = Math.max(1, ...catList.map(c => c[1]));
+  const bands = [['a', 'Çok iyi'], ['b', 'İyi'], ['c', 'Geliştirilmeli'], ['d', 'Yetersiz']].map(([k, l]) => ({ k, l, n: 0 }));
+  for (const a of st.list) { const s = scoreOf(a); const b = bands.find(x => x.k === band(s.score, s.crit)); if (b) b.n++; }
+  const bTot = bands.reduce((p, q) => p + q.n, 0);
+  // gün gün denetim
+  const days = [];
+  for (let d = pr.from; d <= pr.to; d = addDays(d, 1)) {
+    const list = st.list.filter(a => a.date === d);
+    days.push({ d, n: list.length, names: list.map(a => a.branchName), future: d > t, today: d === t });
+  }
+  const dMax = Math.max(1, ...days.map(x => x.n));
+  const prevRank = new Map(ps.ranking.map(r => [r.id, r.avg]));
+  // ay görünümünde her 5 günde bir etiket; bugün de etiketlenir ama komşu etiketle çakışmaz
+  const labeled = new Set();
+  days.forEach((x, i) => { if (pr.weekly || i % 5 === 0) labeled.add(i); });
+  const ti = days.findIndex(x => x.today), li = days.length - 1;
+  for (const k of [ti, li]) if (k >= 0 && ![...labeled].some(j => j !== k && Math.abs(j - k) < 3)) labeled.add(k);
+  if (ti >= 0 && !labeled.has(ti)) { for (const j of [...labeled]) if (Math.abs(j - ti) < 3) labeled.delete(j); labeled.add(ti); }
+  const DN = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
+  const dayLabel = d => { const [y, m, dd] = d.split('-').map(Number); return pr.weekly ? DN[new Date(y, m - 1, dd).getDay()] : String(dd); };
+
+  $app.innerHTML = `${toolbar}
+    <section class="sum-card">
+      <div class="sm-h"><div><p class="hero-d">${pr.weekly ? 'Haftalık faaliyet raporu' : 'Aylık denetim özeti'}</p><h2>${esc(pr.label)}</h2></div>
+        <span class="sm-cmp">önceki dönem: ${esc(pp.label)}</span></div>
+      <div class="sm-grid">
+        ${metric('Denetim', st.list.length, dl(st.list.length, ps.list.length), `${st.ranking.length} birim${st.mins ? ` · ${duration(st.mins)}` : ''}`)}
+        ${metric('Ortalama puan', st.avg ?? '—', dl(st.avg, ps.avg, 'up', ' puan'), ps.avg != null ? `önceki ${ps.avg}` : 'önceki dönem yok')}
+        ${metric('Bulgu', st.nok, dl(st.nok, ps.nok, 'down'), `${st.crit} kritik`)}
+        ${metric('Kapatılan', st.closedInPeriod, dl(st.closedInPeriod, ps.closedInPeriod), 'bulgu kapandı')}
+      </div>
     </section>
-    ${st.top.length ? `<section class="card pad"><header class="card-h"><h3>En sık bulgular</h3></header>
-      <ul class="plain">${st.top.map(e => `<li><span class="cnt">${e.n}×</span>${esc(e.item.text)}<small> · ${e.branches.size} şube</small></li>`).join('')}</ul></section>` : ''}</div></div>`
-    : `<div class="empty">${icon('chart')}<p>${esc(pr.label)} döneminde tamamlanmış denetim yok.</p></div>`}`;
-  const ta = $app.querySelector('[data-period-text]');
-  if (ta) autosize(ta);
+    <div class="v-cols">
+      <div class="dcol dmain">
+        <section class="card pad o1">
+          <header class="card-h"><h3>Gün gün denetim</h3><small class="muted">${st.list.length} denetim · ${days.filter(x => x.n).length} gün sahada</small></header>
+          <div class="act-bars ${pr.weekly ? 'wk7' : ''}">${days.map((x, i) => `
+            <div class="ab ${x.n ? '' : 'z'} ${x.today ? 'today' : ''} ${x.future ? 'fut' : ''}" data-tip="${esc(`${trDate(x.d)}\n${x.n ? `${x.n} denetim: ${x.names.join(', ')}` : x.future ? 'Henüz gelmedi' : 'Denetim yok'}`)}">
+              <span class="ab-b">${x.n ? `<span class="ab-v">${x.n}</span>` : ''}<i style="height:${x.n ? Math.max(6, x.n / dMax * 84) : 0}%"></i></span>
+              <span class="ab-l">${labeled.has(i) ? dayLabel(x.d) : ''}</span></div>`).join('')}</div>
+        </section>
+        <section class="card pad o3">
+          <header class="card-h"><h3>Şube sıralaması</h3><small class="muted">önceki döneme göre</small></header>
+          <div class="rank">${st.ranking.map((r, i) => { const pv = prevRank.get(r.id); const d = pv != null && r.avg != null ? r.avg - pv : null;
+            return `<a class="rank-r" href="#/sube/${r.id}"><span class="rk">${i + 1}</span><span class="rn">${esc(r.name)}<small>${r.n} denetim · ${r.nok} bulgu${r.crit ? ` · ${r.crit} kritik` : ''}</small></span>
+            <span class="rb"><i class="b-${band(r.avg, r.crit)}" style="width:${r.avg || 0}%"></i></span>
+            <b class="rv">${r.avg ?? '—'}${d ? `<i class="${d > 0 ? 'pos' : 'neg'}">${d > 0 ? '▲' : '▼'}${Math.abs(d)}</i>` : ''}</b></a>`; }).join('')}</div>
+        </section>
+        <section class="card pad o7">
+          <header class="card-h"><h3>Yöneticiye ${pr.weekly ? 'haftalık rapor' : 'aylık özet'}</h3>
+            <button class="btn link sm" data-act="copyPeriod">${icon('copy')} Kopyala</button>
+            <button class="btn link sm" data-act="sharePeriod">${icon('chat')} Gönder</button></header>
+          <textarea class="report-text" data-period-text>${esc(periodText(pr.label, st, S.settings, pr.weekly))}</textarea>
+          <p class="hint">Metni dilediğin gibi düzeltip kopyalayabilir ya da WhatsApp ve e-postayla gönderebilirsin.</p>
+        </section>
+        <section class="blk o8"><h3 class="sec-t">Bu dönemin denetimleri (${st.list.length})</h3>
+          <div class="list">${[...st.list].sort(desc).map(auditRow).join('')}</div></section>
+      </div>
+      <div class="dcol dside">
+        <section class="card pad o2">
+          <header class="card-h"><h3>Puan dağılımı</h3><small class="muted">${bTot} denetim</small></header>
+          <div class="sb">${bands.map(b => b.n ? `<span class="sb-seg b-${b.k}" style="flex:${b.n}" data-tip="${esc(`${b.l}: ${b.n} denetim (%${Math.round(b.n / bTot * 100)})`)}"></span>` : '').join('')}</div>
+          <ul class="sb-leg">${bands.map(b => `<li><span class="lg b-${b.k}"></span><span class="grow">${b.l}</span><b>${b.n}</b><em class="pc">%${bTot ? Math.round(b.n / bTot * 100) : 0}</em></li>`).join('')}</ul>
+        </section>
+        <section class="card pad o4">
+          <header class="card-h"><h3>Bulgular</h3><small class="muted">${st.nok} bulgu · %${st.nok ? Math.round(closedNow / st.nok * 100) : 0} kapandı</small></header>
+          <div class="sev-row top">${Object.entries(SEV).map(([k, v]) => `<div class="sev-c"><span class="sev sev-${k}">${v.label}</span><b>${sev[k]}</b></div>`).join('')}</div>
+          ${catList.length ? `<div class="hb mt">${catList.map(([c, n]) => `<div class="hb-r" data-tip="${esc(`${c}: ${n} bulgu (%${Math.round(n / st.nok * 100)})`)}"><span class="hb-l">${esc(c)}</span>
+            <span class="hb-t"><i style="width:${(n / catMax * 100).toFixed(1)}%"></i></span><b>${n}</b></div>`).join('')}</div>` : ''}
+        </section>
+        ${st.top.length ? `<section class="card pad o5"><header class="card-h"><h3>En sık bulgular</h3></header>
+          <ul class="plain">${st.top.map(e => `<li><span class="cnt">${e.n}×</span><span class="grow">${esc(e.item.text)}</span><small>${e.branches.size} şube</small></li>`).join('')}</ul></section>` : ''}
+        <section class="card pad o6"><header class="card-h"><h3>Denetim türleri</h3></header>
+          <ul class="types">${[...types.entries()].sort((p, q) => q[1] - p[1]).map(([k, n]) => `<li><span>${icon('list')} ${esc(k)}</span><b>${n}</b></li>`).join('')}
+            ${st.cash ? `<li><span>${icon('cash')} Kasa sayımı</span><b>${st.cash}</b></li>` : ''}
+            ${st.ships ? `<li><span>${icon('barcode')} Kontrol edilen gönderi</span><b>${st.ships}</b></li>` : ''}</ul>
+        </section>
+      </div>
+    </div>`;
+  autosize($app.querySelector('[data-period-text]'));
+  bindTips();
 }
+A.perNow = () => { cur.month = todayISO().slice(0, 7); cur.week = mondayOf(todayISO()); rerender(); };
 A.per = btn => { cur.per = btn.dataset.p; rerender(); };
 F.month = (el, ev) => { if (ev === 'change' && el.value) { cur.month = el.value; rerender(); } };
 A.mon = btn => {

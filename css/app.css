@@ -1106,6 +1106,76 @@ a.icon-btn { text-decoration: none; }
   .bd-open { display: grid; grid-template-columns: 1fr 1fr; }
 }
 
+/* =========================================================
+   Özet sayfası
+   ========================================================= */
+.sum-bar.card { padding: 10px; gap: 10px; }
+.sum-bar .month-pick input { min-height: 40px; }
+.sum-bar .month-pick .btn { width: 40px; min-height: 40px; }
+.sum-acts { display: flex; gap: 8px; }
+.sum-acts .btn { flex: 1; }
+
+.sum-card {
+  position: relative; overflow: hidden; border-radius: var(--r-xl); padding: 20px 18px; color: #fff;
+  background: radial-gradient(110% 130% at 100% 0%, rgba(255, 91, 31, .3), transparent 55%), linear-gradient(160deg, var(--hero-1), var(--hero-2));
+  box-shadow: var(--sh-3), inset 0 0 0 1px rgba(255, 255, 255, .06); display: flex; flex-direction: column; gap: 16px;
+}
+.sm-h { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.sm-h h2 { font-size: 26px; font-weight: 750; letter-spacing: -.03em; margin-top: 2px; }
+.sm-cmp { font-size: 12px; color: rgba(255, 255, 255, .55); }
+.sm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sm-m { background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .08); border-radius: 14px; padding: 12px 13px; display: flex; flex-direction: column; gap: 4px; }
+.sm-m small { font-size: 12px; color: rgba(255, 255, 255, .62); font-weight: 550; }
+.sm-m b { font-size: 30px; font-weight: 800; letter-spacing: -.04em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.sm-m > span { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11.5px; }
+.sm-m em { font-style: normal; color: rgba(255, 255, 255, .55); }
+.sum-card .dl.pos { background: rgba(18, 183, 106, .2); color: #8ef0bd; }
+.sum-card .dl.neg { background: rgba(240, 68, 56, .22); color: #ffb3ab; }
+.sum-card .dl.flat:not(:empty) { background: rgba(255, 255, 255, .1); color: rgba(255, 255, 255, .75); }
+
+/* gün gün denetim çubukları */
+.act-bars { display: flex; align-items: stretch; gap: 3px; height: 170px; padding-top: 18px; }
+.act-bars.wk7 { gap: 10px; }
+.ab { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; cursor: default; }
+.ab-b { flex: 1; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; min-height: 0; }
+.ab i { display: block; width: 100%; max-width: 34px; border-radius: 4px 4px 0 0; background: var(--accent); transition: opacity .15s; }
+.ab.z::after { content: ""; position: absolute; bottom: 20px; left: 15%; right: 15%; height: 2px; border-radius: 1px; background: var(--line); }
+.ab.fut::after { background: transparent; border-bottom: 2px dotted var(--line-2); height: 0; }
+.ab-v { font-size: 11px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1; }
+.ab-l { font-size: 10.5px; color: var(--ink-3); font-weight: 550; height: 20px; display: flex; align-items: flex-end; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ab.today .ab-l { color: var(--accent-2); font-weight: 750; }
+.act-bars:hover .ab i { opacity: .45; }
+.act-bars .ab:hover i { opacity: 1; }
+.ab:hover { background: var(--surface-2); border-radius: 6px; }
+
+.sb-leg .pc { font-style: normal; color: var(--ink-3); font-size: 12px; min-width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+.sb-seg.b-a { background: var(--b-a); } .sb-seg.b-b { background: var(--b-b); } .sb-seg.b-c { background: var(--b-c); } .sb-seg.b-d { background: var(--b-d); }
+.sev-row.top { margin-top: 0; padding-top: 0; border-top: 0; }
+.rv i { font-style: normal; font-size: 10.5px; font-weight: 700; margin-left: 4px; }
+.rv i.pos { color: var(--ok); } .rv i.neg { color: var(--nok); }
+.rank-r { grid-template-columns: 26px minmax(0, 1.3fr) 1fr 52px; }
+.types { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.types li { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.types li:first-child { border-top: 0; padding-top: 0; }
+.types span { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-weight: 550; }
+.types .ic { width: 16px; height: 16px; color: var(--ink-3); }
+.types b { font-variant-numeric: tabular-nums; font-weight: 750; }
+.v-summary .plain li { align-items: center; }
+
+@media (min-width: 1024px) {
+  .sum-bar.card { flex-direction: row; align-items: center; padding: 10px 12px; }
+  .sum-bar .seg { width: 200px; flex: none; }
+  .sum-bar .month-pick { width: 320px; flex: none; }
+  .sum-acts { margin-left: auto; }
+  .sum-acts .btn { flex: none; }
+  .sum-card { padding: 26px 28px; }
+  .sm-h h2 { font-size: 32px; }
+  .sm-grid { grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .sm-m { padding: 16px; }
+  .sm-m b { font-size: 36px; }
+  .act-bars { height: 200px; }
+}
+
 /* ---------- yazdırma / PDF ---------- */
 #print-root { display: none; }
 @media print {
