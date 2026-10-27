@@ -1573,67 +1573,139 @@ A.periodXlsx = async () => { try { await xl.exportPeriod(cur.periodLabel, cur.pe
 A.periodXlsxShare = async () => { try { await xl.exportPeriod(cur.periodLabel, cur.periodStats, S.branches, true); } catch (e) { toast(e.message); } };
 
 // ============ AYARLAR ============
-const toggle = (k, label, sub, def = true) => `<label class="sw"><span class="grow"><b>${label}</b>${sub ? `<small>${sub}</small>` : ''}</span>
-  <input type="checkbox" data-field="tog" data-k="${k}" ${(def ? S.settings[k] !== false : !!S.settings[k]) ? 'checked' : ''}><i></i></label>`;
+const APP_VERSION = '1.13';
+// "Ana ekrana ekle" isteği: tarayıcı izin verirse yakalanır, Ayarlar'daki düğme kullanır
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (location.hash.startsWith('#/ayarlar')) rerender(); });
+window.addEventListener('appinstalled', () => { installEvt = null; toast('Uygulama ana ekrana eklendi'); });
+const standalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+const setRow = (ic, tone, title, sub, right = '', tag = 'div', attrs = '') =>
+  `<${tag} class="set-r" ${attrs}><span class="set-ic t-${tone}">${icon(ic)}</span><span class="grow"><b>${title}</b>${sub ? `<small>${sub}</small>` : ''}</span>${right}</${tag}>`;
+const tgl = (k, def = true) => `<input type="checkbox" class="tgl-in" data-field="tog" data-k="${k}" ${(def ? S.settings[k] !== false : !!S.settings[k]) ? 'checked' : ''}><i class="tgl" aria-hidden="true"></i>`;
+const chev = `<span class="set-chev">${icon('chevron')}</span>`;
 
 async function viewSettings() {
   $app.className = 'v-settings';
   top({ title: 'Ayarlar' });
   const hasDemo = S.audits.some(a => a.demo) || S.branches.some(b => b.demo);
-  let usage = '';
-  try { const e = await navigator.storage.estimate(); usage = `${(e.usage / 1048576).toFixed(1)} MB kullanılıyor`; } catch { /* desteklenmiyor */ }
+  let est = null, photos = 0;
+  try { est = await navigator.storage.estimate(); } catch { /* desteklenmiyor */ }
+  try { photos = await db.count('photos'); } catch { /* yok */ }
   if (!location.hash.startsWith('#/ayarlar')) return;
-  const items = S.templates.reduce((t, x) => t + x.items.length, 0);
-  $app.innerHTML = `
-    <section class="card pad">
-      <header class="card-h"><h3>Raporlarda görünecek bilgiler</h3></header>
-      <label class="lbl">Adın soyadın</label><input data-field="set" data-k="auditor" value="${esc(S.settings.auditor)}" autocomplete="name">
-      <label class="lbl">Unvanın</label><input data-field="set" data-k="title" value="${esc(S.settings.title)}" placeholder="ör. Bölge Denetim Sorumlusu">
-      <label class="lbl">Firma / birim adı</label><input data-field="set" data-k="company" value="${esc(S.settings.company)}" placeholder="Rapor başlığında yazar">
-      <label class="lbl">İmzan</label>
-      <button class="sign-box wide" data-act="mySign">${S.settings.signPh ? `<img data-ph="${S.settings.signPh}" alt="">` : `<span class="sign-empty">${icon('pen')} İmzanı çiz, her raporun PDF'ine eklensin</span>`}</button>
-    </section>
-    <a class="card row" href="#/liste">${icon('list')}<div class="grow"><b>Denetim türleri ve kontrol listeleri</b><small>${S.templates.length} tür · ${items} madde · kendi Excel'inden yükle</small></div>${icon('chevron')}</a>
-    <section class="card pad">
-      <header class="card-h"><h3>Görünüm</h3><small class="muted">${themeOf() === 'auto' ? 'telefonun ayarına uyar' : themeOf() === 'dark' ? 'hep koyu' : 'hep açık'}</small></header>
-      <div class="seg three" role="group" aria-label="Tema">${[['auto', 'Otomatik', 'phone'], ['light', 'Açık', 'sun'], ['dark', 'Koyu', 'moon']].map(([k, l, ic]) =>
-        `<button class="${themeOf() === k ? 'on' : ''}" data-act="theme" data-t="${k}" aria-pressed="${themeOf() === k}">${icon(ic)}<span>${l}</span></button>`).join('')}</div>
-    </section>
-    <section class="card pad set-list">
-      <header class="card-h"><h3>Çalışma şekli</h3></header>
-      ${toggle('stamp', 'Fotoğraflara tarih ve şube damgası', 'Fotoğrafın köşesine kanıt olarak yazılır')}
-      ${toggle('geo', 'Denetim başında konumu kaydet', 'Şubede bulunduğunun kanıtı, raporda görünür')}
-      ${toggle('big', 'Büyük yazı', 'Güneş altında ve küçük ekranda daha rahat okunur', false)}
-      <label class="sw"><span class="grow"><b>Varsayılan denetim sıklığı</b><small>Bu kadar gün geçen şube ana sayfada hatırlatılır</small></span>
-        <input class="num-in" type="number" inputmode="numeric" min="1" data-field="set" data-k="freq" value="${esc(S.settings.freq || 30)}"></label>
-      <button class="sw" data-act="pin"><span class="grow"><b>Uygulama kilidi</b><small>${S.settings.pinHash ? 'Açık · açarken PIN sorulur' : 'Kapalı · telefonu başkası kullanıyorsa aç'}</small></span>${icon('lock')}</button>
-    </section>
-    <section class="card pad">
-      <header class="card-h"><h3>Yedek ve dışa aktarma</h3></header>
-      <p class="hint">Veriler yalnızca bu telefonda durur. Yedek dosyasını kendine e-postayla gönder ya da Drive'a koy. Yeni telefonda “Yedeği geri yükle” ile her şey geri gelir.</p>
-      <p class="hint">${S.lastBackup ? `Son yedek: <b>${trDate(S.lastBackup)}</b>` : 'Henüz yedek alınmadı.'}${usage ? ` · ${usage}` : ''}</p>
-      <div class="row-gap">
-        <button class="btn primary grow" data-act="backup">${icon('download')} Yedek al</button>
-        <label class="btn ghost grow">${icon('upload')} Yedeği geri yükle<input type="file" accept=".json,application/json" data-field="restore" hidden></label>
-      </div>
-      <div class="row-gap mt"><button class="btn ghost grow" data-act="exportAll">${icon('table')} Bütün kayıtları Excel'de aç</button>
-        <label class="btn ghost grow">${icon('upload')} Excel dosyası aç<input type="file" accept=".xlsx,.xls,.csv,.ods" data-field="xlsOpen" hidden></label></div>
-    </section>
-    <a class="card row" href="#/yardim">${icon('help')}<div class="grow"><b>Nasıl kullanılır?</b><small>Kısa kullanım rehberi</small></div>${icon('chevron')}</a>
-    <section class="card pad">
-      <header class="card-h"><h3>Örnek veriler</h3></header>
-      <div class="row-gap">${hasDemo
-        ? `<button class="btn ghost grow" data-act="removeDemo">${icon('trash')} Örnek verileri kaldır</button>`
-        : `<button class="btn ghost grow" data-act="loadDemo">${icon('refresh')} Örnek veri yükle</button>`}</div>
-    </section>
-    <section class="card pad">
-      <header class="card-h"><h3>Uygulamayı telefona kur</h3></header>
-      <p class="hint">Chrome menüsünden (⋮) <b>“Ana ekrana ekle”</b> ya da <b>“Uygulamayı yükle”</b> seç. İkon ana ekrana gelir, internet olmadan da açılır.</p>
-    </section>
-    <button class="btn link danger-t block" data-act="wipe">Bütün verileri sil</button>
-    <p class="foot">Denetim Cebi · ücretsiz · veriler cihazda kalır</p>`;
+  const t = todayISO();
+  const items = S.templates.reduce((n, x) => n + x.items.length, 0);
+  const name = S.settings.auditor || '';
+  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toLocaleUpperCase('tr')).join('') || icon('user');
+  const nDone = done().length;
+  const bk = S.lastBackup ? diffDays(S.lastBackup, t) : null;
+  const bkState = bk == null ? { k: 'warn', l: 'Henüz hiç yedek alınmadı' } : bk >= 7 ? { k: 'warn', l: `Son yedek ${bk} gün önce` } : { k: 'ok', l: bk === 0 ? 'Bugün yedek alındı' : `Son yedek ${bk} gün önce` };
+  const mb = b => (b / 1048576).toLocaleString('tr-TR', { maximumFractionDigits: 1 });
+  const size = b => b >= 1073741824 ? `${Math.round(b / 1073741824).toLocaleString('tr-TR')} GB` : `${Math.round(b / 1048576).toLocaleString('tr-TR')} MB`;
+  const usedPct = est && est.quota ? Math.max(1, Math.min(100, est.usage / est.quota * 100)) : 0;
+  const nav = [['s-profil', 'user', 'Profil'], ['s-gorunum', 'sun', 'Görünüm'], ['s-denetim', 'list', 'Denetim'], ['s-guvenlik', 'lock', 'Güvenlik'], ['s-veri', 'download', 'Veriler ve yedek'], ['s-yardim', 'help', 'Yardım']];
+
+  $app.innerHTML = `<div class="set-wrap">
+    <nav class="set-nav" aria-label="Ayar bölümleri">${nav.map(([id, ic, l]) => `<button data-act="jumpTo" data-to="${id}">${icon(ic)}<span>${l}</span></button>`).join('')}</nav>
+    <div class="set-main">
+      <section class="set-hero" id="s-profil">
+        <span class="avatar">${initials}</span>
+        <div class="grow"><h2>${esc(name || 'Adını ekle')}</h2><p>${esc([S.settings.title, S.settings.company].filter(Boolean).join(' · ') || 'Unvan ve firma raporlarda görünür')}</p></div>
+        <div class="set-stats"><span><b>${nDone}</b> denetim</span><span><b>${S.branches.length}</b> şube</span><span><b>${photos}</b> fotoğraf</span></div>
+      </section>
+
+      <section class="set-sec">
+        <h3 class="set-t">Profil</h3>
+        <div class="card set-card pad">
+          <div class="set-fields">
+            <label><span>Adın soyadın</span><input data-field="set" data-k="auditor" value="${esc(S.settings.auditor)}" autocomplete="name" placeholder="ör. Ayşe Yılmaz"></label>
+            <label><span>Unvanın</span><input data-field="set" data-k="title" value="${esc(S.settings.title)}" placeholder="ör. Bölge Denetim Sorumlusu"></label>
+            <label class="full"><span>Firma / birim adı</span><input data-field="set" data-k="company" value="${esc(S.settings.company)}" placeholder="Rapor başlığında yazar"></label>
+          </div>
+          <p class="lbl">İmzan <small class="muted">her raporun PDF'ine eklenir</small></p>
+          <button class="sign-box wide" data-act="mySign">${S.settings.signPh ? `<img data-ph="${S.settings.signPh}" alt="İmzan">` : `<span class="sign-empty">${icon('pen')} İmzanı çiz</span>`}</button>
+        </div>
+      </section>
+
+      <section class="set-sec" id="s-gorunum">
+        <h3 class="set-t">Görünüm</h3>
+        <div class="card set-card">
+          <div class="set-r col"><div class="set-r-top"><span class="set-ic t-violet">${icon('sun')}</span><span class="grow"><b>Tema</b><small>${themeOf() === 'auto' ? 'Telefonun ayarına uyar' : themeOf() === 'dark' ? 'Hep koyu' : 'Hep açık'}</small></span></div>
+            <div class="seg three" role="group" aria-label="Tema">${[['auto', 'Otomatik', 'phone'], ['light', 'Açık', 'sun'], ['dark', 'Koyu', 'moon']].map(([k, l, ic]) =>
+              `<button class="${themeOf() === k ? 'on' : ''}" data-act="theme" data-t="${k}" aria-pressed="${themeOf() === k}">${icon(ic)}<span>${l}</span></button>`).join('')}</div></div>
+          ${setRow('layers', 'violet', 'Büyük yazı', 'Güneş altında ve küçük ekranda daha rahat okunur', tgl('big', false), 'label')}
+        </div>
+      </section>
+
+      <section class="set-sec" id="s-denetim">
+        <h3 class="set-t">Denetim</h3>
+        <div class="card set-card">
+          ${setRow('list', 'orange', 'Denetim türleri ve kontrol listeleri', `${S.templates.length} tür · ${items} madde · Excel'den yüklenebilir`, chev, 'a', 'href="#/liste"')}
+          ${setRow('camera', 'blue', 'Fotoğraflara tarih ve şube damgası', 'Fotoğrafın köşesine kanıt olarak yazılır', tgl('stamp'), 'label')}
+          ${setRow('pin', 'blue', 'Denetim başında konumu kaydet', 'Şubede bulunduğunun kanıtı, raporda görünür', tgl('geo'), 'label')}
+          ${setRow('calendar', 'orange', 'Varsayılan denetim sıklığı', 'Bu kadar gün geçen şube ana sayfada hatırlatılır',
+            `<span class="set-num"><input type="number" inputmode="numeric" min="1" data-field="set" data-k="freq" value="${esc(S.settings.freq || 30)}" aria-label="Gün"><em>gün</em></span>`)}
+        </div>
+      </section>
+
+      <section class="set-sec" id="s-guvenlik">
+        <h3 class="set-t">Güvenlik</h3>
+        <div class="card set-card">
+          ${setRow('lock', 'green', 'Uygulama kilidi', S.settings.pinHash ? 'Açık · açarken PIN sorulur' : 'Kapalı · telefonu başkası da kullanıyorsa aç',
+            `<span class="set-pill ${S.settings.pinHash ? 'on' : ''}">${S.settings.pinHash ? 'Açık' : 'Kapalı'}</span>${chev}`, 'button', 'data-act="pin"')}
+        </div>
+        <p class="set-note">${icon('lock')} Veriler yalnızca bu cihazda saklanır, hiçbir sunucuya gönderilmez.</p>
+      </section>
+
+      <section class="set-sec" id="s-veri">
+        <h3 class="set-t">Veriler ve yedek</h3>
+        <div class="card set-card pad">
+          <div class="bk-state bk-${bkState.k}">${icon(bkState.k === 'ok' ? 'check' : 'alert')}<div class="grow"><b>${bkState.l}</b>
+            <small>${bkState.k === 'ok' ? 'Haftada bir yedek alman yeterli.' : 'Telefon değişir ya da tarayıcı verisi silinirse kayıtlar kaybolur. Yedek dosyasını kendine e-postayla gönder ya da Drive\'a koy.'}</small></div></div>
+          <div class="set-btns">
+            <button class="btn primary" data-act="backup">${icon('download')} Yedek al</button>
+            <label class="btn ghost">${icon('upload')} Yedeği geri yükle<input type="file" accept=".json,application/json" data-field="restore" hidden></label>
+          </div>
+          ${est ? `<div class="meter"><div class="meter-h"><span>Depolama</span><b>${mb(est.usage)} MB kullanılıyor</b></div>
+            <div class="meter-b"><i style="width:${usedPct.toFixed(1)}%"></i></div>
+            <small>${est.quota ? `Bu tarayıcıda yaklaşık ${size(est.quota)} yer var.` : ''} ${photos} fotoğraf, ${S.audits.length} denetim kaydı.</small></div>` : ''}
+        </div>
+        <div class="card set-card">
+          ${setRow('table', 'green', "Bütün kayıtları Excel'de aç", 'Denetimler, bulgular, gönderiler ve şubeler tek dosyada', chev, 'button', 'data-act="exportAll"')}
+          ${setRow('upload', 'green', 'Excel dosyası aç', 'Şirketin gönderdiği bir tabloyu uygulamada görüntüle', `${chev}<input type="file" accept=".xlsx,.xls,.csv,.ods" data-field="xlsOpen" hidden>`, 'label')}
+          ${hasDemo ? setRow('trash', 'gray', 'Örnek verileri kaldır', 'Denemek için yüklenen şube ve denetimleri siler', chev, 'button', 'data-act="removeDemo"')
+            : setRow('refresh', 'gray', 'Örnek veri yükle', 'Uygulamayı dolu hâliyle görmek için 3 şube, 8 denetim', chev, 'button', 'data-act="loadDemo"')}
+        </div>
+      </section>
+
+      <section class="set-sec" id="s-yardim">
+        <h3 class="set-t">Yardım</h3>
+        <div class="card set-card">
+          ${setRow('help', 'blue', 'Nasıl kullanılır?', 'Kısa kullanım rehberi', chev, 'a', 'href="#/yardim"')}
+          ${standalone() ? setRow('check', 'green', 'Uygulama yüklü', 'Ana ekrandan açıyorsun, internetsiz de çalışır')
+            : installEvt ? setRow('download', 'orange', 'Uygulamayı yükle', 'Ana ekrana ekle, internetsiz de açılsın', `<span class="btn accent sm">Yükle</span>`, 'button', 'data-act="install"')
+            : setRow('phone', 'orange', 'Uygulamayı telefona kur', 'Chrome menüsünden (⋮) “Ana ekrana ekle” ya da “Uygulamayı yükle” seç')}
+        </div>
+      </section>
+
+      <section class="set-sec">
+        <h3 class="set-t danger-t">Tehlikeli bölge</h3>
+        <div class="card set-card danger-card">
+          ${setRow('trash', 'red', '<span class="danger-t">Bütün verileri sil</span>', 'Şubeler, denetimler, fotoğraflar ve ayarlar kalıcı olarak silinir', chev, 'button', 'data-act="wipe"')}
+        </div>
+      </section>
+      <p class="foot">Denetim Cebi · sürüm ${APP_VERSION} · ücretsiz · veriler cihazda kalır</p>
+    </div>
+  </div>`;
   hydratePhotos($app);
 }
+A.install = async () => {
+  if (!installEvt) return;
+  installEvt.prompt();
+  try { await installEvt.userChoice; } catch { /* vazgeçildi */ }
+  installEvt = null;
+  rerender();
+};
 F.set = el => { S.settings[el.dataset.k] = el.value; saveSoon('settings', saveSettings); };
 
 // ---------- tema: otomatik (telefona uyar) / açık / koyu ----------

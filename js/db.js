@@ -36,6 +36,7 @@ const wrap = req => new Promise((res, rej) => { req.onsuccess = () => res(req.re
 
 export const get = (store, id) => tx(store, 'readonly', s => wrap(s.get(id)));
 export const all = (store) => tx(store, 'readonly', s => wrap(s.getAll()));
+export const count = (store) => tx(store, 'readonly', s => wrap(s.count()));
 export const put = (store, obj) => tx(store, 'readwrite', s => { s.put(obj); });
 export const del = (store, id) => tx(store, 'readwrite', s => { s.delete(id); });
 export const clear = (store) => tx(store, 'readwrite', s => { s.clear(); });
