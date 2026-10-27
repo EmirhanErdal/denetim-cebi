@@ -8,11 +8,11 @@ import {
   reminderMessage, periodStats, periodText, cashSentence, shipSentence,
 } from './report.js';
 import * as xl from './excel.js';
-import { dashData, kpiHTML, weekHTML, openHTML, catsHTML, karneHTML, trendHTML, mountDash } from './dash.js';
+import { dashData, kpiHTML, weekHTML, openHTML, catsHTML, karneHTML, trendHTML, mountDash, mountLine, spark as miniSpark } from './dash.js';
 import { makeDemo } from './demo.js';
 import {
   esc, cap, icon, toast, sheet, ask, pickDate, shareSheet, copy, saveFile, photoSrc, hydratePhotos, storePhotos,
-  storeBlob, thumbs, autosize, micBtn, startMic, stopMic,
+  storeBlob, thumbs, autosize, micBtn, startMic, stopMic, waNumber,
 } from './ui.js';
 import { openCash, cashDiff, openShips, signPad, viewPhoto } from './tools.js';
 
@@ -23,7 +23,7 @@ const $tab = document.getElementById('tabbar');
 const S = { settings: {}, templates: [], branches: [], audits: [], lastBackup: null };
 const cur = {
   audit: null, prev: null, open: new Set(), cats: [], bank: new Map(), report: null,
-  actFilter: 'acik', q: '', fSev: 'all', fBranch: 'all', fSort: 'due', per: 'ay', month: todayISO().slice(0, 7), week: mondayOf(todayISO()), tplEdit: null,
+  actFilter: 'acik', q: '', fSev: 'all', fBranch: 'all', fSort: 'due', bFilter: 'all', bSort: 'name', bTpl: null, per: 'ay', month: todayISO().slice(0, 7), week: mondayOf(todayISO()), tplEdit: null,
 };
 
 // ---------- küçük yardımcılar ----------
@@ -1160,31 +1160,116 @@ A.reopenF = async btn => {
 };
 
 // ============ ŞUBELER ============
+// ---------- şube özeti (liste ve detay ortak) ----------
+function bStats(b, t, openAll) {
+  const list = done().filter(a => a.branchId === b.id).sort(desc);
+  const last = list[0];
+  const s = last ? scoreOf(last) : null;
+  const open = openAll.filter(x => x.audit.branchId === b.id);
+  const since = last ? diffDays(last.date, t) : null;
+  const freq = freqOf(b);
+  let st;
+  if (b.planned) {
+    const d = diffDays(t, b.planned);
+    st = d < 0 ? { k: 'late', l: `Planlanan tarih ${-d} gün geçti`, ic: 'alert' }
+      : d === 0 ? { k: 'soon', l: 'Bugün planlı', ic: 'calendar' }
+      : { k: 'plan', l: d === 1 ? 'Yarın planlı' : `${trDate(b.planned)} planlı`, ic: 'calendar' };
+  } else if (since == null) st = { k: 'new', l: 'Henüz denetlenmedi', ic: 'flag' };
+  else if (since >= freq) st = { k: 'late', l: `Denetim zamanı geçti · ${since} gün`, ic: 'alert' };
+  else if (freq - since <= 7) st = { k: 'soon', l: `${freq - since} gün içinde denetim zamanı`, ic: 'clock' };
+  else st = { k: 'ok', l: `Güncel · ${since === 0 ? 'bugün denetlendi' : `${since} gün önce denetlendi`}`, ic: 'check' };
+  const scores = list.map(a => scoreOf(a).score).filter(v => v != null);
+  return {
+    b, list, last, s, open, since, freq, st,
+    crit: open.filter(x => x.item.sev === 'kritik').length,
+    avg: scores.length ? Math.round(scores.reduce((p, q) => p + q, 0) / scores.length) : null,
+    spark: list.slice(0, 8).reverse().map(a => scoreOf(a).score).filter(v => v != null),
+    risk: open.length > 0 || (s && (s.crit || (s.score != null && s.score < 75))),
+  };
+}
+
+function scoreRing(score, b, size = 54) {
+  const r = 22, c = 2 * Math.PI * r, len = c * (score ?? 0) / 100;
+  return `<span class="sring" style="width:${size}px;height:${size}px"><svg viewBox="0 0 54 54" aria-hidden="true"><circle cx="27" cy="27" r="${r}" class="sr-bg"/>
+    <circle cx="27" cy="27" r="${r}" class="sr-fg g-${b}" stroke-dasharray="${len.toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 27 27)"/></svg><b>${score ?? '—'}</b></span>`;
+}
+
+const waLink = phone => { const n = waNumber(phone); return n ? `https://wa.me/${n}` : ''; };
+
 function viewBranches() {
   $app.className = 'v-branches';
   top({ title: 'Şubeler', sub: `${S.branches.length} şube / birim`, right: `<button class="tb-act" data-act="addBranch" aria-label="Şube ekle">${icon('plus')}</button>` });
+  if (!S.branches.length) {
+    $app.innerHTML = `<div class="empty">${icon('store')}<p>Henüz şube yok. Sağ üstteki + ile ekle ya da denetim başlatırken ekle.</p>
+      <button class="btn primary" data-act="addBranch">${icon('plus')} Şube ekle</button></div>`;
+    return;
+  }
+  const t = todayISO();
   const open = openFindings();
-  const list = [...S.branches].sort(byName);
-  const todo = new Map(todoList().map(x => [x.b.id, x]));
-  $app.innerHTML = list.length ? `
-    ${list.length > 5 ? `<label class="search-w">${icon('search')}<input type="search" data-bq placeholder="Şube ara"></label>` : ''}
-    <div class="list">${list.map(b => {
-      const last = lastAudit(b.id);
-      const sc = last ? scoreOf(last) : {};
-      const o = open.filter(x => x.audit.branchId === b.id).length;
-      const td = todo.get(b.id);
-      return `<a class="card row" href="#/sube/${b.id}" data-n="${esc(b.name.toLocaleLowerCase('tr'))}"><span class="score-dot b-${band(sc.score, sc.crit)}">${sc.score ?? '—'}</span>
-        <div class="grow"><b>${esc(b.name)}</b><small>${[b.city, last ? `son: ${trDate(last.date)}` : ''].filter(Boolean).map(esc).join(' · ')}</small>
-        ${td ? `<small class="${td.cls}">${esc(td.reason)}</small>` : ''}</div>
-        ${o ? `<span class="pill nok">${o} açık</span>` : ''}${icon('chevron')}</a>`;
-    }).join('')}</div>` : `<div class="empty">${icon('store')}<p>Henüz şube yok. Sağ üstteki + ile ekle ya da denetim başlatırken ekle.</p>
-    <button class="btn primary" data-act="addBranch">${icon('plus')} Şube ekle</button></div>`;
+  const all = S.branches.map(b => bStats(b, t, open));
+  const due = x => x.st.k === 'late' || x.st.k === 'new' || x.st.k === 'soon';
+  const filters = { all: () => true, due, plan: x => !!x.b.planned, risk: x => x.risk };
+  const list = all.filter(filters[cur.bFilter] || filters.all);
+  const sorts = {
+    name: (p, q) => byName(p.b, q.b),
+    score: (p, q) => (p.s?.score ?? 101) - (q.s?.score ?? 101),
+    since: (p, q) => (q.since ?? 9999) - (p.since ?? 9999),
+    open: (p, q) => q.open.length - p.open.length || (p.s?.score ?? 101) - (q.s?.score ?? 101),
+  };
+  list.sort(sorts[cur.bSort] || sorts.name);
+  const lastScores = all.map(x => x.s?.score).filter(v => v != null);
+  const avgLast = lastScores.length ? Math.round(lastScores.reduce((p, q) => p + q, 0) / lastScores.length) : null;
+  const n = k => all.filter(filters[k]).length;
+  const kpi = (k, label, val, sub, cls = '') => `<button class="tile kpi f-kpi ${cls} ${cur.bFilter === k ? 'sel' : ''}" data-act="bFilter" data-v="${k}"><small>${label}</small><b>${val}</b><span class="kpi-s"><em>${sub}</em></span></button>`;
+  const chip = (k, l) => `<button class="chip ${cur.bFilter === k ? 'on' : ''}" data-act="bFilter" data-v="${k}">${l} <b>${n(k)}</b></button>`;
+
+  $app.innerHTML = `
+    <div class="tiles f-kpis">
+      ${kpi('all', `${icon('store')} Toplam şube`, all.length, `${all.filter(x => x.last).length} şube denetlendi`)}
+      ${kpi('due', `${icon('clock')} Zamanı gelen`, n('due'), 'denetim sırası gelmiş', n('due') ? 'warn' : '')}
+      ${kpi('plan', `${icon('calendar')} Planlı`, n('plan'), 'tarih verilmiş')}
+      ${kpi('risk', `${icon('alert')} İlgi isteyen`, n('risk'), avgLast != null ? `ortalama son puan ${avgLast}` : 'açık bulgu ya da düşük puan')}
+    </div>
+    <div class="f-bar card">
+      <label class="search-w">${icon('search')}<input type="search" data-bq placeholder="Şube, il ya da sorumlu ara"></label>
+      <div class="f-row">
+        <div class="chips f-sev">${chip('all', 'Tümü')}${chip('due', 'Zamanı gelen')}${chip('plan', 'Planlı')}${chip('risk', 'İlgi isteyen')}</div>
+        <select class="f-sel" data-field="bSort" aria-label="Sıralama">${[['name', 'Ada göre'], ['score', 'Puana göre (düşük önce)'], ['since', 'En uzun süredir denetlenmeyen'], ['open', 'Açık bulguya göre']].map(([k, l]) => `<option value="${k}" ${(cur.bSort || 'name') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      </div>
+    </div>
+    ${list.length ? `<div class="bgrid">${list.map(x => {
+      const b = x.b, wa = waLink(b.phone);
+      const key = `${b.name} ${b.city || ''} ${b.manager || ''}`.toLocaleLowerCase('tr');
+      return `<article class="card bc" data-n="${esc(key)}">
+        <header class="bc-h">
+          <a class="bc-title" href="#/sube/${b.id}"><b>${esc(b.name)}</b><small>${esc(b.city || 'Konum eklenmedi')}</small></a>
+          ${scoreRing(x.s?.score, band(x.s?.score, x.s?.crit))}
+        </header>
+        <p class="bc-st st-${x.st.k}">${icon(x.st.ic)}<span>${esc(x.st.l)}</span></p>
+        <div class="bc-stats">
+          <div><span>Son denetim</span><b>${x.last ? trDate(x.last.date) : '—'}</b></div>
+          <div><span>Açık bulgu</span><b class="${x.open.length ? 'nok' : ''}">${x.open.length}${x.crit ? ` <em>${x.crit} kritik</em>` : ''}</b></div>
+          <div><span>Gidişat</span><span class="bc-spk b-${band(x.s?.score, x.s?.crit)}-t">${miniSpark(x.spark, 70, 24) || '<em>—</em>'}</span></div>
+        </div>
+        <footer class="bc-f">
+          <span class="bc-m">${icon('user')}<span>${b.manager ? esc(b.manager) : '<i>Sorumlu eklenmedi</i>'}</span></span>
+          ${b.phone ? `<a class="icon-btn ghost" href="tel:${esc(b.phone)}" aria-label="Ara" title="Ara">${icon('phoneCall')}</a>` : ''}
+          ${wa ? `<a class="icon-btn ghost" href="${wa}" target="_blank" rel="noopener" aria-label="WhatsApp" title="WhatsApp">${icon('chat')}</a>` : ''}
+          <button class="btn primary sm" data-act="newAudit" data-branch="${b.id}">${icon('play')} Başla</button>
+        </footer>
+      </article>`;
+    }).join('')}</div>` : `<div class="empty">${icon('store')}<p>Bu filtreye uyan şube yok.</p></div>`}
+    <p class="empty-s" data-none hidden>Aramayla eşleşen şube yok.</p>`;
   const q = $app.querySelector('[data-bq]');
-  if (q) q.oninput = () => {
+  q.oninput = () => {
     const v = q.value.toLocaleLowerCase('tr').trim();
-    $app.querySelectorAll('[data-n]').forEach(r => { r.hidden = v && !r.dataset.n.includes(v); });
+    let any = false;
+    $app.querySelectorAll('.bc').forEach(c => { const hit = !v || c.dataset.n.includes(v); c.hidden = !hit; if (hit) any = true; });
+    $app.querySelector('[data-none]').hidden = any || !v;
   };
 }
+A.bFilter = btn => { cur.bFilter = btn.dataset.v; rerender(); };
+F.bSort = (el, ev) => { if (ev === 'change') { cur.bSort = el.value; rerender(); } };
 
 A.addBranch = () => branchForm();
 A.editBranch = btn => branchForm(getBranch(btn.dataset.b));
@@ -1230,40 +1315,94 @@ function viewBranch(id) {
   $app.className = 'v-branch';
   const b = getBranch(id);
   if (!b) return notFound();
-  const list = done().filter(a => a.branchId === id).sort(desc);
-  const open = openFindings().filter(x => x.audit.branchId === id);
+  const t = todayISO();
+  const x = bStats(b, t, openFindings());
   top({ title: b.name, sub: b.city || 'Şube', back: '#/subeler', right: `<button class="tb-act" data-act="editBranch" data-b="${id}" aria-label="Düzenle">${icon('edit')}</button>` });
-  const last = list[0];
-  const since = last ? diffDays(last.date, todayISO()) : null;
-  const byTpl = new Map();
-  for (const a of list) { const k = tplId(a); if (!byTpl.has(k)) byTpl.set(k, []); byTpl.get(k).push(a); }
+  // birden çok denetim türü varsa grafik tür tür gösterilir
+  const tplCount = new Map();
+  for (const a of x.list) tplCount.set(tplId(a), (tplCount.get(tplId(a)) || 0) + 1);
+  const tpls = [...tplCount.keys()].sort((p, q) => tplCount.get(q) - tplCount.get(p)); // en çok yapılan tür önce
+  if (!tpls.includes(cur.bTpl)) cur.bTpl = tpls[0];
+  const ofTpl = x.list.filter(a => tplId(a) === cur.bTpl).slice(0, 12).reverse();
+  const cats = new Map();
+  let catTotal = 0;
   const freq = new Map();
-  for (const a of list) for (const x of findings(a)) { const e = freq.get(x.item.id) || { item: x.item, n: 0 }; e.n++; freq.set(x.item.id, e); }
+  for (const a of x.list) for (const f of findings(a)) {
+    cats.set(f.item.cat, (cats.get(f.item.cat) || 0) + 1); catTotal++;
+    const e = freq.get(f.item.id) || { item: f.item, n: 0 }; e.n++; freq.set(f.item.id, e);
+  }
+  const catList = [...cats.entries()].sort((p, q) => q[1] - p[1]).slice(0, 6);
+  const catMax = Math.max(1, ...catList.map(c => c[1]));
   const chronic = [...freq.values()].filter(e => e.n > 1).sort((p, q) => q.n - p.n).slice(0, 5);
+  const wa = waLink(b.phone);
+  const openSorted = x.open.slice().sort(SORTS.due);
 
   $app.innerHTML = `
-    <section class="card pad kv">
-      ${b.manager ? `<p><span>Sorumlu</span><b>${esc(b.manager)}</b></p>` : ''}
-      ${b.phone ? `<p><span>Telefon</span><a href="tel:${esc(b.phone)}">${esc(b.phone)}</a></p>` : ''}
-      <p><span>Son denetim</span><b>${last ? `${trDate(last.date)} (${since} gün önce)` : '—'}</b></p>
-      <p><span>Denetim sıklığı</span><b>${freqOf(b)} günde bir</b></p>
-      <p><span>Planlanan</span><b>${b.planned ? trDate(b.planned) : '—'}</b></p>
-      <p><span>Açık bulgu</span><b>${open.length}</b></p>
+    <section class="bd-hero">
+      <div class="bd-top">
+        <div class="grow">
+          <p class="hero-d">${esc(b.city || 'Şube / birim')}</p>
+          <h2>${esc(b.name)}</h2>
+          <p class="bd-st st-${x.st.k}">${icon(x.st.ic)} ${esc(x.st.l)}</p>
+        </div>
+        ${x.s ? gauge(x.s.score, band(x.s.score, x.s.crit)) : ''}
+      </div>
+      <div class="bd-meta">
+        <span>${icon('user')} ${b.manager ? esc(b.manager) : 'Sorumlu eklenmedi'}</span>
+        ${b.phone ? `<a href="tel:${esc(b.phone)}">${icon('phoneCall')} ${esc(b.phone)}</a>` : ''}
+        ${wa ? `<a href="${wa}" target="_blank" rel="noopener">${icon('chat')} WhatsApp</a>` : ''}
+        ${!b.manager || !b.phone ? `<button class="bd-link" data-act="editBranch" data-b="${id}">${icon('plus')} Bilgi ekle</button>` : ''}
+      </div>
+      <div class="bd-acts">
+        <button class="btn accent" data-act="newAudit" data-branch="${id}">${icon('play')} Denetime başla</button>
+        <button class="btn glass" data-act="plan" data-b="${id}">${icon('calendar')} ${b.planned ? trDate(b.planned) : 'Planla'}</button>
+        ${x.open.length ? `<button class="btn glass" data-act="remind" data-b="${id}">${icon('bell')} Hatırlat</button>` : ''}
+      </div>
     </section>
-    <div class="row-gap">
-      <button class="btn primary grow" data-act="newAudit" data-branch="${id}">${icon('play')} Denetime başla</button>
-      <button class="btn ghost" data-act="plan" data-b="${id}">${icon('calendar')} Planla</button>
-      ${open.length ? `<button class="btn ghost" data-act="remind" data-b="${id}">${icon('bell')} Hatırlat</button>` : ''}
+    <div class="tiles">
+      <div class="tile kpi"><small>${icon('flag')} Denetim</small><b>${x.list.length}</b><span class="kpi-s"><em>${x.since == null ? 'henüz yok' : x.since === 0 ? 'son: bugün' : `son: ${x.since} gün önce`}</em></span></div>
+      <div class="tile kpi"><small>${icon('chart')} Ortalama puan</small><b>${x.avg ?? '—'}</b><span class="kpi-s"><em>tüm denetimler</em></span></div>
+      <a class="tile kpi ${x.crit ? 'warn' : ''}" href="#/bulgular" data-act="bOpenAll" data-b="${id}"><small>${icon('alert')} Açık bulgu</small><b>${x.open.length}</b><span class="kpi-s">${x.crit ? `<span class="dl neg">${x.crit} kritik</span>` : '<em>takipte</em>'}</span></a>
+      <div class="tile kpi"><small>${icon('clock')} Sıklık</small><b>${x.freq} <span class="tile-s">gün</span></b><span class="kpi-s"><em>${b.freq ? 'bu şubeye özel' : 'varsayılan'}</em></span></div>
     </div>
-    ${[...byTpl.entries()].map(([k, as]) => {
-      const pts = as.slice(0, 8).reverse().map(a => ({ s: scoreOf(a).score, d: a.date })).filter(p => p.s != null);
-      return pts.length > 1 ? `<section class="card pad"><header class="card-h"><h3>Puan gidişatı · ${esc(short(tplName(as[0])))}</h3></header>${spark(pts)}</section>` : '';
-    }).join('')}
-    ${chronic.length ? `<section class="card pad"><header class="card-h"><h3>Sürekli tekrar eden bulgular</h3></header>
-      <ul class="plain">${chronic.map(e => `<li><span class="cnt">${e.n}×</span>${esc(e.item.text)}</li>`).join('')}</ul></section>` : ''}
-    <h3 class="sec-t">Denetimler</h3>
-    ${list.length ? `<div class="list">${list.map(auditRow).join('')}</div>` : '<p class="empty-s">Bu şube henüz denetlenmedi.</p>'}`;
+    <div class="v-cols">
+      <div class="dcol dmain">
+        <section class="card pad o1">
+          <header class="card-h"><h3>Puan gidişatı</h3><small class="muted">denetim denetim</small></header>
+          ${tpls.length > 1 ? `<div class="chips wrap bd-tpl">${tpls.map(k => `<button class="chip ${k === cur.bTpl ? 'on' : ''}" data-act="bTpl" data-v="${k}">${esc(short(getTpl(k)?.name || x.list.find(a => tplId(a) === k).templateName))}</button>`).join('')}</div>` : ''}
+          <div class="chart" data-chart="btrend"></div>
+        </section>
+        <section class="card pad o2">
+          <header class="card-h"><h3>Açık bulgular</h3>${x.open.length > 4 ? `<a class="btn link sm" href="#/bulgular" data-act="bOpenAll" data-b="${id}">Tümü (${x.open.length}) ${icon('chevron')}</a>` : ''}</header>
+          ${openSorted.length ? `<div class="bd-open">${openSorted.slice(0, 4).map(f => fcardHTML(f, t)).join('')}</div>` : `<p class="empty-s">${icon('check')} Açık bulgu yok.</p>`}
+        </section>
+        <section class="blk o5"><h3 class="sec-t">Denetim geçmişi</h3>
+          ${x.list.length ? `<div class="list">${x.list.map(auditRow).join('')}</div>` : '<p class="empty-s">Bu şube henüz denetlenmedi.</p>'}</section>
+      </div>
+      <div class="dcol dside">
+        <section class="card pad o3">
+          <header class="card-h"><h3>Bulgular hangi başlıkta?</h3><small class="muted">${catTotal} bulgu</small></header>
+          ${catList.length ? `<div class="hb">${catList.map(([c, n]) => `<div class="hb-r" data-tip="${esc(`${c}: ${n} bulgu (%${Math.round(n / catTotal * 100)})`)}"><span class="hb-l">${esc(c)}</span>
+            <span class="hb-t"><i style="width:${(n / catMax * 100).toFixed(1)}%"></i></span><b>${n}</b></div>`).join('')}</div>` : '<p class="empty-s">Henüz bulgu yok.</p>'}
+        </section>
+        <section class="card pad o4">
+          <header class="card-h"><h3>Sürekli tekrar eden</h3></header>
+          ${chronic.length ? `<ul class="plain">${chronic.map(e => `<li><span class="cnt">${e.n}×</span>${esc(e.item.text)}</li>`).join('')}</ul>` : '<p class="empty-s">Tekrar eden bulgu yok.</p>'}
+        </section>
+      </div>
+    </div>`;
+  hydratePhotos($app);
+  mountLine($app.querySelector('[data-chart="btrend"]'), ofTpl.map(a => {
+    const s = scoreOf(a);
+    return { label: trDate(a.date).slice(0, 5), v: s.score, tip: `${trDate(a.date)} · ${short(tplName(a))}\n${s.score ?? '—'} puan · ${s.nok} bulgu${s.crit ? ` · ${s.crit} kritik` : ''}` };
+  }), { empty: 'Bu şube henüz denetlenmedi.', aria: `${b.name} puan gidişatı` });
 }
+A.bTpl = btn => { cur.bTpl = btn.dataset.v; rerender(); };
+A.bOpenAll = btn => {
+  cur.fBranch = btn.dataset.b; cur.actFilter = 'acik'; cur.fSev = 'all';
+  if (S.settings.findView === 'pano') { S.settings.findView = 'liste'; saveSettings(); }
+  location.hash = '#/bulgular';
+};
 
 A.plan = async btn => {
   const b = getBranch(btn.dataset.b);
@@ -1274,18 +1413,6 @@ A.plan = async btn => {
   toast(v ? `${trDate(v)} için planlandı` : 'Plan kaldırıldı');
   rerender();
 };
-
-function spark(pts) {
-  const W = 320, H = 110, P = 22;
-  const x = i => P + i * (W - 2 * P) / (pts.length - 1);
-  const y = s => H - P - (s / 100) * (H - 2 * P);
-  const path = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.s).toFixed(1)}`).join('');
-  return `<svg class="spark" viewBox="0 0 ${W} ${H}" role="img" aria-label="Puan gidişatı">
-    <line x1="${P}" x2="${W - P}" y1="${y(75)}" y2="${y(75)}" class="sp-ref"/><text x="${W - P}" y="${y(75) - 4}" class="sp-ref-t" text-anchor="end">75</text>
-    <path d="${path}" class="sp-line"/>
-    ${pts.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.s)}" r="4" class="sp-dot"/><text x="${x(i)}" y="${y(p.s) - 9}" text-anchor="middle" class="sp-v">${p.s}</text><text x="${x(i)}" y="${H - 4}" text-anchor="middle" class="sp-d">${trDate(p.d).slice(0, 5)}</text>`).join('')}
-  </svg>`;
-}
 
 // ============ ÖZET (hafta / ay) ============
 function period() {

@@ -187,22 +187,25 @@ export function trendHTML() {
   </section>`;
 }
 
-// ---------- puan gidişatı (gerçek genişliğe göre çizilir) ----------
-function drawTrend(el, months) {
+// ---------- puan çizgisi (gerçek genişliğe göre çizilir) ----------
+// pts: [{ label, v (puan ya da null), tip }]; null olan noktada çizgi kesilir
+let gid = 0;
+function drawLine(el, pts, { empty = 'Henüz veri yok.', aria = 'Puan gidişatı' } = {}) {
   const W = Math.max(280, el.clientWidth), H = 220, pl = 34, pr = 18, pt = 22, pb = 30;
-  const vals = months.map(m => m.avg);
+  const vals = pts.map(p => p.v);
   const has = vals.filter(v => v != null);
-  if (!has.length) { el.innerHTML = '<p class="empty-s">Son 6 ayda tamamlanmış denetim yok.</p>'; return; }
+  if (!has.length) { el.innerHTML = `<p class="empty-s">${esc(empty)}</p>`; return; }
   let lo = Math.floor((Math.min(...has) - 10) / 10) * 10;
   lo = Math.max(0, Math.min(60, lo));
   const step = (100 - lo) > 40 ? 20 : 10;
   const y = v => pt + (100 - v) / (100 - lo) * (H - pt - pb);
-  const sx = (W - pl - pr) / (months.length - 1);
-  const x = i => pl + i * sx;
+  const one = pts.length === 1;
+  const sx = one ? W - pl - pr : (W - pl - pr) / (pts.length - 1);
+  const x = i => one ? (pl + W - pr) / 2 : pl + i * sx;
+  const id = 'lf' + (++gid);
   let g = '';
   for (let v = lo; v <= 100; v += step) g += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" class="tg"/><text x="${pl - 8}" y="${y(v) + 4}" class="tl" text-anchor="end">${v}</text>`;
   if (75 > lo) g += `<line x1="${pl}" x2="${W - pr}" y1="${y(75)}" y2="${y(75)}" class="tr"/><text x="${W - pr}" y="${y(75) - 6}" class="tl tr-l" text-anchor="end">İyi sınırı 75</text>`;
-  // boş aylarda çizgi kesilir
   const segs = [];
   let curS = [];
   vals.forEach((v, i) => { if (v == null) { if (curS.length) segs.push(curS); curS = []; } else curS.push(i); });
@@ -211,17 +214,18 @@ function drawTrend(el, months) {
   const area = segs.filter(s => s.length > 1).map(s => `M${x(s[0])},${base} ` + s.map(i => `L${x(i)},${y(vals[i])}`).join(' ') + ` L${x(s[s.length - 1])},${base} Z`).join(' ');
   const line = segs.map(s => s.map((i, k) => `${k ? 'L' : 'M'}${x(i)},${y(vals[i])}`).join(' ')).join(' ');
   const last = vals.reduce((li, v, i) => v != null ? i : li, -1);
-  el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Son 6 ayın aylık ortalama denetim puanı">
-    <defs><linearGradient id="tgFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+  // çok noktada etiketler sıkışmasın: en fazla ~8 etiket
+  const every = Math.max(1, Math.ceil(pts.length / Math.max(2, Math.floor((W - pl - pr) / 56))));
+  el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(aria)}">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
     ${g}
-    <path d="${area}" fill="url(#tgFill)"/>
+    <path d="${area}" fill="url(#${id})"/>
     <path d="${line}" class="tln"/>
     <line class="tx" x1="0" x2="0" y1="${pt - 6}" y2="${base}" visibility="hidden"/>
     ${vals.map((v, i) => v == null ? '' : `<circle cx="${x(i)}" cy="${y(v)}" r="4" class="tp" data-i="${i}"/>`).join('')}
     ${last >= 0 ? `<text x="${x(last)}" y="${y(vals[last]) - 12}" text-anchor="middle" class="tv">${vals[last]}</text>` : ''}
-    ${months.map((m, i) => `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" class="tl ${i === months.length - 1 ? 'now' : ''}">${m.label}</text>`).join('')}
-    ${months.map((m, i) => `<rect class="th" x="${x(i) - sx / 2}" y="0" width="${sx}" height="${H}" data-i="${i}"
-      data-tip="${esc(m.avg == null ? `${m.full}\nDenetim yok` : `${m.full}\nOrtalama ${m.avg} puan · ${m.n} denetim`)}"/>`).join('')}
+    ${pts.map((p, i) => (i % every && i !== pts.length - 1) ? '' : `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" class="tl ${i === pts.length - 1 ? 'now' : ''}">${esc(p.label)}</text>`).join('')}
+    ${pts.map((p, i) => `<rect class="th" x="${one ? pl : x(i) - sx / 2}" y="0" width="${sx}" height="${H}" data-i="${i}" data-tip="${esc(p.tip)}"/>`).join('')}
   </svg>`;
   const svg = el.querySelector('svg'), cross = svg.querySelector('.tx');
   svg.addEventListener('pointerover', e => {
@@ -231,6 +235,18 @@ function drawTrend(el, months) {
     svg.querySelectorAll('.tp').forEach(c => c.classList.toggle('on', +c.dataset.i === i));
   });
   svg.addEventListener('pointerleave', () => { cross.setAttribute('visibility', 'hidden'); svg.querySelectorAll('.tp.on').forEach(c => c.classList.remove('on')); });
+}
+
+// Çizer, genişlik değişince yeniden çizer; sayfa değişince gözlemciyi bırakır
+export function mountLine(el, pts, opts) {
+  if (!el) return;
+  drawLine(el, pts, opts);
+  let last = el.clientWidth;
+  const ro = new ResizeObserver(() => { if (Math.abs(el.clientWidth - last) > 4) { last = el.clientWidth; drawLine(el, pts, opts); } });
+  ro.observe(el);
+  const off = () => { ro.disconnect(); window.removeEventListener('hashchange', off); hideTip(); };
+  window.addEventListener('hashchange', off);
+  bindTips();
 }
 
 // ---------- bilgi kutusu (üzerine gel / dokun) ----------
@@ -252,22 +268,16 @@ function showTip(target, e) {
 const hideTip = () => tip && tip.classList.remove('on');
 
 export function mountDash(root, d) {
-  const trend = root.querySelector('[data-chart="trend"]');
-  if (trend) {
-    drawTrend(trend, d.months);
-    let last = trend.clientWidth;
-    const ro = new ResizeObserver(() => { if (Math.abs(trend.clientWidth - last) > 4) { last = trend.clientWidth; drawTrend(trend, d.months); } });
-    ro.observe(trend);
-    // sayfa değişince gözlemci bırakılır
-    const off = () => { ro.disconnect(); window.removeEventListener('hashchange', off); hideTip(); };
-    window.addEventListener('hashchange', off);
-  }
+  const pts = d.months.map(m => ({ label: m.label, v: m.avg, tip: m.avg == null ? `${m.full}
+Denetim yok` : `${m.full}
+Ortalama ${m.avg} puan · ${m.n} denetim` }));
+  mountLine(root.querySelector('[data-chart="trend"]'), pts, { empty: 'Son 6 ayda tamamlanmış denetim yok.', aria: 'Son 6 ayın aylık ortalama denetim puanı' });
   bindTips();
 }
 
 // Bilgi kutusu dinleyicileri bir kez, belge düzeyinde kurulur (sayfa her çizildiğinde birikmesin)
 let bound = false, touchT;
-function bindTips() {
+export function bindTips() {
   if (bound) return;
   bound = true;
   document.addEventListener('pointermove', e => {
