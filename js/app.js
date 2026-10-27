@@ -1212,6 +1212,11 @@ async function viewSettings() {
       <button class="sign-box wide" data-act="mySign">${S.settings.signPh ? `<img data-ph="${S.settings.signPh}" alt="">` : `<span class="sign-empty">${icon('pen')} İmzanı çiz, her raporun PDF'ine eklensin</span>`}</button>
     </section>
     <a class="card row" href="#/liste">${icon('list')}<div class="grow"><b>Denetim türleri ve kontrol listeleri</b><small>${S.templates.length} tür · ${items} madde · kendi Excel'inden yükle</small></div>${icon('chevron')}</a>
+    <section class="card pad">
+      <header class="card-h"><h3>Görünüm</h3><small class="muted">${themeOf() === 'auto' ? 'telefonun ayarına uyar' : themeOf() === 'dark' ? 'hep koyu' : 'hep açık'}</small></header>
+      <div class="seg three" role="group" aria-label="Tema">${[['auto', 'Otomatik', 'phone'], ['light', 'Açık', 'sun'], ['dark', 'Koyu', 'moon']].map(([k, l, ic]) =>
+        `<button class="${themeOf() === k ? 'on' : ''}" data-act="theme" data-t="${k}" aria-pressed="${themeOf() === k}">${icon(ic)}<span>${l}</span></button>`).join('')}</div>
+    </section>
     <section class="card pad set-list">
       <header class="card-h"><h3>Çalışma şekli</h3></header>
       ${toggle('stamp', 'Fotoğraflara tarih ve şube damgası', 'Fotoğrafın köşesine kanıt olarak yazılır')}
@@ -1247,6 +1252,26 @@ async function viewSettings() {
   hydratePhotos($app);
 }
 F.set = el => { S.settings[el.dataset.k] = el.value; saveSoon('settings', saveSettings); };
+
+// ---------- tema: otomatik (telefona uyar) / açık / koyu ----------
+const themeOf = () => (S.settings.theme === 'light' || S.settings.theme === 'dark') ? S.settings.theme : 'auto';
+function applyTheme() {
+  const t = themeOf();
+  const root = document.documentElement;
+  if (t === 'auto') delete root.dataset.theme; else root.dataset.theme = t;
+  // açılışta yanıp sönmesin diye index.html bu kopyayı ilk anda okur
+  try { if (t === 'auto') localStorage.removeItem('dc-theme'); else localStorage.setItem('dc-theme', t); } catch { /* depolama kapalı */ }
+  const [light, dark] = document.querySelectorAll('meta[name="theme-color"]');
+  if (!light || !dark) return;
+  if (t === 'auto') { light.media = '(prefers-color-scheme: light)'; dark.media = '(prefers-color-scheme: dark)'; }
+  else { light.media = t === 'light' ? 'all' : 'not all'; dark.media = t === 'dark' ? 'all' : 'not all'; }
+}
+A.theme = btn => {
+  S.settings.theme = btn.dataset.t;
+  saveSettings();
+  applyTheme();
+  rerender();
+};
 F.tog = el => {
   S.settings[el.dataset.k] = el.checked;
   saveSettings();
@@ -1347,7 +1372,7 @@ F.restore = async (el, ev) => {
   await db.putMany('audits', data.audits);
   if (data.templates?.length) { S.templates = data.templates; await saveTemplates(); }
   else if (data.checklist?.length) { S.templates[0].items = data.checklist; await saveTemplates(); }
-  if (data.settings) { S.settings = { ...S.settings, ...data.settings }; await saveSettings(); }
+  if (data.settings) { S.settings = { ...S.settings, ...data.settings }; await saveSettings(); applyTheme(); }
   S.branches = await db.all('branches');
   S.audits = await db.all('audits');
   toast('Yedek geri yüklendi');
@@ -1587,6 +1612,7 @@ async function boot() {
     return;
   }
   document.body.classList.toggle('big', !!S.settings.big);
+  applyTheme();
   if (S.settings.pinHash) await showLock();
   render();
   if (!S.settings.onboarded && !S.settings.auditor && !S.audits.length) setTimeout(onboarding, 400);
