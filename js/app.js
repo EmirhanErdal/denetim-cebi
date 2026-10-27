@@ -56,17 +56,18 @@ function dueLabel(due, closed, act) {
 // ---------- kayıt ----------
 const timers = new Map();
 function saveSoon(key, fn, ms = 400) {
-  clearTimeout(timers.get(key));
-  timers.set(key, setTimeout(() => { timers.delete(key); fn(); }, ms));
+  clearTimeout(timers.get(key)?.id);
+  timers.set(key, { fn, id: setTimeout(() => { timers.delete(key); fn(); }, ms) });
 }
-const saveAudit = a => db.put('audits', a).catch(() => toast('Kaydedilemedi! Telefon hafızası dolu olabilir.'));
+// updatedAt: cihazlar arası aktarımda hangi kaydın daha yeni olduğunu belirler
+const saveAudit = a => { a.updatedAt = Date.now(); return db.put('audits', a).catch(() => toast('Kaydedilemedi! Telefon hafızası dolu olabilir.')); };
 const saveSettings = () => db.setKV('settings', S.settings);
 const saveTemplates = () => db.setKV('templates', S.templates);
-const saveBranch = b => db.put('branches', b);
+const saveBranch = b => { b.updatedAt = Date.now(); return db.put('branches', b); };
+// Bekleyen kayıtlar hemen yazılır. Değişmeyen denetim yeniden kaydedilmez; yoksa sadece açmak bile
+// "son değişiklik" zamanını ilerletir ve aktarımda öbür cihazdaki gerçek düzeltmeyi ezerdi.
 function flush() {
-  for (const [k, t] of timers) { clearTimeout(t); timers.delete(k); }
-  if (cur.audit) saveAudit(cur.audit);
-  if (cur.report) saveAudit(cur.report.a);
+  for (const [k, t] of timers) { clearTimeout(t.id); timers.delete(k); t.fn(); }
   saveSettings();
 }
 window.addEventListener('pagehide', flush);
@@ -114,6 +115,7 @@ const routes = [
   [/^#\/ayarlar$/, viewSettings, 'ayarlar'],
   [/^#\/liste$/, viewChecklist, 'ayarlar'],
   [/^#\/yardim$/, viewHelp, 'ayarlar'],
+  [/^#\/aktar$/, viewTransfer, 'ayarlar'],
 ];
 
 function render() {
@@ -1669,7 +1671,7 @@ A.periodXlsx = async () => { try { await xl.exportPeriod(cur.periodLabel, cur.pe
 A.periodXlsxShare = async () => { try { await xl.exportPeriod(cur.periodLabel, cur.periodStats, S.branches, true); } catch (e) { toast(e.message); } };
 
 // ============ AYARLAR ============
-const APP_VERSION = '1.15';
+const APP_VERSION = '1.16';
 // "Ana ekrana ekle" isteği: tarayıcı izin verirse yakalanır, Ayarlar'daki düğme kullanır
 let installEvt = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (location.hash.startsWith('#/ayarlar')) rerender(); });
@@ -1768,6 +1770,7 @@ async function viewSettings() {
             <small>${est.quota ? `Bu tarayıcıda yaklaşık ${size(est.quota)} yer var.` : ''} ${photos} fotoğraf, ${S.audits.length} denetim kaydı.</small></div>` : ''}
         </div>
         <div class="card set-card">
+          ${setRow('refresh', 'orange', 'Cihazlar arası aktarım', `Telefon ile bilgisayar arasında kayıtları taşı${S.settings.lastReceived ? ` · son alım ${trDate(todayISO(new Date(S.settings.lastReceived.at)))}` : ''}`, chev, 'a', 'href="#/aktar"')}
           ${setRow('table', 'green', "Bütün kayıtları Excel'de aç", 'Denetimler, bulgular, gönderiler ve şubeler tek dosyada', chev, 'button', 'data-act="exportAll"')}
           ${setRow('upload', 'green', 'Excel dosyası aç', 'Şirketin gönderdiği bir tabloyu uygulamada görüntüle', `${chev}<input type="file" accept=".xlsx,.xls,.csv,.ods" data-field="xlsOpen" hidden>`, 'label')}
           ${hasDemo ? setRow('trash', 'gray', 'Örnek verileri kaldır', 'Denemek için yüklenen şube ve denetimleri siler', chev, 'button', 'data-act="removeDemo"')
@@ -1926,13 +1929,7 @@ function showLock() {
 
 A.backup = async () => {
   toast('Yedek hazırlanıyor…');
-  const photos = await db.all('photos');
-  const toData = b => new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); });
-  const data = {
-    app: 'denetim-cebi', version: 2, exportedAt: new Date().toISOString(),
-    settings: S.settings, templates: S.templates, branches: S.branches, audits: S.audits,
-    photos: await Promise.all(photos.map(async p => ({ id: p.id, auditId: p.auditId, data: await toData(p.blob) }))),
-  };
+  const data = await buildPack(true, 'backup');
   const r = await saveFile(new Blob([JSON.stringify(data)], { type: 'application/json' }), `DenetimCebi_Yedek_${todayISO()}.json`, true);
   if (r === 'cancel') return;
   S.lastBackup = todayISO();
@@ -1977,6 +1974,167 @@ A.wipe = async () => {
   location.reload();
 };
 
+// ============ CİHAZLAR ARASI AKTARIM ============
+// Sunucu yok: kayıtlar tek dosyada paketlenir, öbür cihazda açılınca birleştirilir.
+// Hiçbir şey silinmez; aynı kayıt iki tarafta da varsa son değiştirilen kalır.
+const deviceLabel = () => window.matchMedia('(pointer: coarse)').matches ? 'Telefon' : 'Bilgisayar';
+const rankOf = x => x.updatedAt || x.finishedAt || x.startedAt || 0;
+const blobToData = b => new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); });
+
+async function buildPack(withPhotos, kind = 'transfer') {
+  const photos = withPhotos ? await db.all('photos') : [];
+  return {
+    app: 'denetim-cebi', version: 3, kind, from: deviceLabel(), exportedAt: new Date().toISOString(),
+    settings: S.settings, templates: S.templates, branches: S.branches, audits: S.audits,
+    photos: await Promise.all(photos.map(async p => ({ id: p.id, auditId: p.auditId, data: await blobToData(p.blob) }))),
+  };
+}
+
+async function readPack(file) {
+  let data;
+  try { data = JSON.parse(await file.text()); } catch { throw new Error('Dosya okunamadı. Denetim Cebi paketi mi?'); }
+  if (data.app !== 'denetim-cebi') throw new Error('Bu dosya bir Denetim Cebi paketi değil');
+  data.audits = data.audits || []; data.branches = data.branches || []; data.photos = data.photos || []; data.templates = data.templates || [];
+  return data;
+}
+
+function diffPack(d) {
+  const r = { aNew: [], aUpd: [], aSame: 0, bNew: [], bUpd: [], bSame: 0, tNew: [] };
+  for (const a of d.audits) {
+    const l = getAudit(a.id);
+    if (!l) r.aNew.push(a); else if (rankOf(a) > rankOf(l)) r.aUpd.push(a); else r.aSame++;
+  }
+  for (const b of d.branches) {
+    const l = getBranch(b.id);
+    if (!l) r.bNew.push(b); else if ((b.updatedAt || 0) > (l.updatedAt || 0)) r.bUpd.push(b); else r.bSame++;
+  }
+  r.tNew = d.templates.filter(t => !getTpl(t.id));
+  return r;
+}
+
+async function applyPack(d, r) {
+  // yalnızca eklenen/güncellenen denetimlere ait fotoğraflar (ve imza) alınır
+  const need = new Set([...r.aNew, ...r.aUpd].map(a => a.id));
+  const ph = d.photos.filter(p => need.has(p.auditId) || p.auditId === 'settings');
+  const blobs = await Promise.all(ph.map(async p => ({ id: p.id, auditId: p.auditId, blob: await (await fetch(p.data)).blob() })));
+  if (blobs.length) await db.putMany('photos', blobs);
+  const audits = [...r.aNew, ...r.aUpd], branches = [...r.bNew, ...r.bUpd];
+  if (audits.length) await db.putMany('audits', audits);
+  if (branches.length) await db.putMany('branches', branches);
+  if (r.tNew.length) { S.templates.push(...r.tNew); await saveTemplates(); }
+  // profil bilgileri yalnızca bu cihazda boşsa doldurulur; PIN aktarılmaz
+  for (const k of ['auditor', 'title', 'company', 'signPh', 'freq']) if (!S.settings[k] && d.settings?.[k]) S.settings[k] = d.settings[k];
+  S.settings.lastReceived = { at: Date.now(), from: d.from || 'diğer cihaz' };
+  await saveSettings();
+  S.branches = await db.all('branches');
+  S.audits = await db.all('audits');
+  return { audits: audits.length, branches: branches.length, photos: blobs.length, templates: r.tNew.length };
+}
+
+async function receivePack(file) {
+  let d;
+  try { d = await readPack(file); } catch (e) { toast(e.message); return; }
+  const r = diffPack(d);
+  const nA = r.aNew.length + r.aUpd.length, nB = r.bNew.length + r.bUpd.length;
+  const when = d.exportedAt ? new Date(d.exportedAt) : null;
+  const line = (n, l, cls = '') => n ? `<li class="${cls}"><b>${n}</b> ${l}</li>` : '';
+  const w = sheet(`<div class="np-h"><span class="np-ic tr-in">${icon('download')}</span><div><h2 class="sheet-t">Paketi al</h2>
+      <p class="sheet-p">${esc(d.from || 'Diğer cihaz')}${when ? ` · ${trDate(todayISO(when))} ${hhmm(when)}` : ''} · ${d.audits.length} denetim, ${d.branches.length} şube, ${d.photos.length} fotoğraf</p></div></div>
+    ${nA || nB || r.tNew.length ? `<ul class="tr-diff">
+      ${line(r.aNew.length, 'yeni denetim eklenecek', 'add')}${line(r.aUpd.length, 'denetim güncellenecek (pakettekiler daha yeni)', 'upd')}
+      ${line(r.bNew.length, 'yeni şube eklenecek', 'add')}${line(r.bUpd.length, 'şube bilgisi güncellenecek', 'upd')}
+      ${line(r.tNew.length, 'yeni denetim türü eklenecek', 'add')}
+      ${line(r.aSame + r.bSame, 'kayıt zaten bu cihazda aynı ya da daha yeni, dokunulmayacak', 'same')}</ul>
+      <p class="hint">Bu cihazdaki hiçbir kayıt silinmez.</p>
+      <div class="sheet-btns"><button class="btn ghost" data-close>Vazgeç</button><button class="btn accent" data-ok>${icon('check')} Aktar</button></div>`
+    : `<p class="tr-ok">${icon('check')} Bu cihaz zaten güncel. Paketteki her şey burada da var.</p>
+      <div class="sheet-btns"><button class="btn primary" data-close>Tamam</button></div>`}`);
+  const ok = w.$('[data-ok]');
+  if (ok) ok.onclick = async () => {
+    ok.disabled = true; ok.textContent = 'Aktarılıyor…';
+    const res = await applyPack(d, r);
+    w.close();
+    toast(`${res.audits} denetim, ${res.branches} şube aktarıldı`);
+    rerender();
+  };
+}
+
+async function viewTransfer() {
+  $app.className = 'v-transfer';
+  top({ title: 'Cihazlar arası aktarım', sub: 'Telefon ⇄ bilgisayar', back: '#/ayarlar' });
+  let phBytes = 0, phN = 0;
+  try { const ps = await db.all('photos'); phN = ps.length; phBytes = ps.reduce((t, p) => t + (p.blob?.size || 0), 0); } catch { /* yok */ }
+  if (!location.hash.startsWith('#/aktar')) return;
+  const base = new Blob([JSON.stringify({ a: S.audits, b: S.branches, t: S.templates })]).size;
+  const size = b => b >= 1048576 ? `${(b / 1048576).toLocaleString('tr-TR', { maximumFractionDigits: 1 })} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
+  const withPh = S.settings.trPhotos !== false;
+  const est = base + (withPh ? phBytes * 1.37 : 0);
+  const me = deviceLabel(), other = me === 'Telefon' ? 'bilgisayara' : 'telefona';
+  const ls = S.settings.lastSent, lr = S.settings.lastReceived;
+  const ago = ts => { const m = Math.round((Date.now() - ts) / 60000); return m < 1 ? 'az önce' : m < 60 ? `${m} dk önce` : m < 1440 ? `${Math.round(m / 60)} sa önce` : `${Math.round(m / 1440)} gün önce`; };
+
+  $app.innerHTML = `
+    <section class="tr-hero">
+      <div class="tr-dev"><span>${icon('phone')}</span><small>Telefon</small></div>
+      <div class="tr-arrows">${icon('chevron')}${icon('chevron', 'flip')}</div>
+      <div class="tr-dev"><span>${icon('chart')}</span><small>Bilgisayar</small></div>
+      <p>Sunucu yok, ücret yok. Kayıtlar tek bir dosyada paketlenir; dosyayı öbür cihazda açınca birleştirilir. Hiçbir kayıt silinmez.</p>
+    </section>
+    <div class="tr-grid">
+      <section class="card pad tr-card">
+        <header class="tr-h"><span class="np-ic tr-out">${icon('upload')}</span><div><h3>Bu cihazdan gönder</h3><small>${me} → ${other}</small></div></header>
+        <div class="tr-sum"><span><b>${S.audits.length}</b> denetim</span><span><b>${S.branches.length}</b> şube</span><span><b>${phN}</b> fotoğraf</span></div>
+        <label class="set-r tr-tg"><span class="grow"><b>Fotoğrafları da gönder</b><small>${phN ? `Paket yaklaşık ${size(est)} olur` : 'Fotoğraf yok'}</small></span>
+          <input type="checkbox" class="tgl-in" data-field="trPh" ${withPh ? 'checked' : ''}><i class="tgl"></i></label>
+        <button class="btn accent block" data-act="trSend">${icon('share')} Paketi gönder</button>
+        <button class="btn ghost block" data-act="trDownload">${icon('download')} Dosya olarak indir</button>
+        ${ls ? `<p class="muted center">Son gönderim: ${ago(ls)}</p>` : ''}
+      </section>
+      <section class="card pad tr-card">
+        <header class="tr-h"><span class="np-ic tr-in">${icon('download')}</span><div><h3>Diğer cihazdan al</h3><small>Gelen paketi aç</small></div></header>
+        <label class="tr-drop" data-drop>
+          <input type="file" accept=".json,application/json" data-field="trFile" hidden>
+          ${icon('upload')}<b>Paketi seç</b><small>${me === 'Bilgisayar' ? 'ya da dosyayı buraya sürükle' : 'İndirilenler ya da WhatsApp klasöründen'}</small>
+        </label>
+        <p class="hint">Açmadan önce ne ekleneceğini gösterir. Aynı kayıt iki tarafta da varsa son değiştirilen kalır.</p>
+        ${lr ? `<p class="muted center">Son alım: ${esc(lr.from)} · ${ago(lr.at)}</p>` : ''}
+      </section>
+    </div>
+    <section class="card pad tr-steps">
+      <header class="card-h"><h3>Nasıl yapılır?</h3></header>
+      <div class="tr-how">
+        <div><b>${icon('phone')} Telefondan bilgisayara</b><ol>
+          <li>Telefonda <b>Paketi gönder</b>'e bas, kendine WhatsApp ya da e-posta olarak gönder.</li>
+          <li>Bilgisayarda WhatsApp Web'den ya da e-postadan dosyayı indir.</li>
+          <li>Bilgisayarda bu sayfayı aç, dosyayı <b>Diğer cihazdan al</b> kutusuna sürükle.</li></ol></div>
+        <div><b>${icon('chart')} Bilgisayardan telefona</b><ol>
+          <li>Bilgisayarda <b>Dosya olarak indir</b>'e bas.</li>
+          <li>Dosyayı kendine WhatsApp ya da e-postayla gönder.</li>
+          <li>Telefonda dosyayı indir, bu sayfada <b>Paketi seç</b> ile aç.</li></ol></div>
+      </div>
+    </section>`;
+  const drop = $app.querySelector('[data-drop]');
+  ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => { const f = e.dataTransfer?.files?.[0]; if (f) receivePack(f); });
+}
+F.trPh = el => { S.settings.trPhotos = el.checked; saveSettings(); rerender(); };
+F.trFile = async (el, ev) => { if (ev !== 'change' || !el.files[0]) return; await receivePack(el.files[0]); el.value = ''; };
+async function sendPack(share) {
+  toast('Paket hazırlanıyor…');
+  const d = await buildPack(S.settings.trPhotos !== false);
+  const stamp = new Date();
+  const name = `DenetimCebi_${d.from}_${todayISO(stamp)}_${hhmm(stamp).replace(':', '')}.json`;
+  const r = await saveFile(new Blob([JSON.stringify(d)], { type: 'application/json' }), name, share);
+  if (r === 'cancel') return;
+  S.settings.lastSent = Date.now();
+  await saveSettings();
+  toast(r === 'shared' ? 'Paket gönderildi' : 'Paket indirildi');
+  rerender();
+}
+A.trSend = () => sendPack(true);
+A.trDownload = () => sendPack(false);
+
 function viewHelp() {
   $app.className = 'v-help';
   top({ title: 'Nasıl kullanılır?', back: '#/ayarlar' });
@@ -1993,7 +2151,8 @@ function viewHelp() {
     ${sec('flag', 'Bulgu takibi', `<p><b>Bulgular</b> sekmesinde açık bulgular termin sırasıyla durur. Termini geçenler kırmızıdır. <b>Hatırlat</b> şubeye hazır mesaj gönderir, <b>Kapat</b> bulguyu kanıt fotoğrafıyla kapatır. Tarihe dokunarak termini değiştirebilirsin.</p>`)}
     ${sec('calendar', 'Plan ve hatırlatma', `<p>Şube sayfasında <b>Planla</b> ile denetim günü seç. Ana sayfadaki <b>Sıradaki şubeler</b>, planlananları ve uzun süredir denetlenmeyenleri gösterir.</p>`)}
     ${sec('chart', 'Haftalık ve aylık rapor', `<p><b>Özet</b> sekmesinde hafta ya da ay seç. Yöneticiye gidecek faaliyet metni, şube sıralaması ve Excel hazırdır.</p>`)}
-    ${sec('download', 'Yedek', `<p>Veriler yalnızca bu telefonda. Haftada bir <b>Ayarlar → Yedek al</b> yap ve dosyayı kendine gönder.</p>`)}`;
+    ${sec('refresh', 'Telefon ve bilgisayar', `<p>Kayıtlar her cihazda ayrı durur. Taşımak için <b>Ayarlar → Cihazlar arası aktarım</b>'ı aç: bir cihazda <b>Paketi gönder</b>, öbüründe <b>Diğer cihazdan al</b>. Hiçbir kayıt silinmez, aynı kayıtta son değiştirilen kalır.</p>`)}
+    ${sec('download', 'Yedek', `<p>Veriler yalnızca bu cihazda. Haftada bir <b>Ayarlar → Yedek al</b> yap ve dosyayı kendine gönder.</p>`)}`;
 }
 
 // ---------- denetim türleri ve kontrol listesi düzenleyici ----------

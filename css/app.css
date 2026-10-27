@@ -1428,6 +1428,62 @@ body.no-tab #toast { bottom: calc(86px + env(safe-area-inset-bottom)); }
   body.no-tab #toast { bottom: 28px; }
 }
 
+/* =========================================================
+   Cihazlar arası aktarım
+   ========================================================= */
+main.v-transfer { max-width: 900px; }
+.tr-hero {
+  position: relative; overflow: hidden; border-radius: var(--r-xl); padding: 22px 18px; color: #fff; text-align: center;
+  background: radial-gradient(110% 130% at 100% 0%, rgba(255, 91, 31, .3), transparent 55%), linear-gradient(160deg, var(--hero-1), var(--hero-2));
+  box-shadow: var(--sh-3), inset 0 0 0 1px rgba(255, 255, 255, .06);
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px;
+}
+.tr-dev { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.tr-dev span { width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .12); }
+.tr-dev .ic { width: 26px; height: 26px; }
+.tr-dev small { font-size: 12.5px; color: rgba(255, 255, 255, .7); font-weight: 600; }
+.tr-arrows { display: flex; flex-direction: column; color: var(--accent); }
+.tr-arrows .ic { width: 22px; height: 22px; stroke-width: 2.4; }
+.ic.flip { transform: rotate(180deg); }
+.tr-hero p { grid-column: 1 / -1; font-size: 13.5px; color: rgba(255, 255, 255, .72); line-height: 1.55; margin-top: 6px; }
+
+.tr-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.tr-card { display: flex; flex-direction: column; gap: 12px; }
+.tr-h { display: flex; align-items: center; gap: 12px; }
+.tr-h h3 { font-size: 16.5px; font-weight: 750; }
+.tr-h small { font-size: 12.5px; color: var(--ink-3); }
+.np-ic.tr-out { background: linear-gradient(140deg, #ff7a45, #e8490f); }
+.np-ic.tr-in { background: linear-gradient(140deg, #2f8f5b, #067647); box-shadow: 0 10px 22px -10px rgba(6, 118, 71, .8); }
+.tr-sum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tr-sum span { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 9px 10px; font-size: 12px; color: var(--ink-3); display: flex; flex-direction: column; }
+.tr-sum b { font-size: 19px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tr-tg { border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
+.tr-drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 150px; padding: 16px; text-align: center; cursor: pointer;
+  border: 2px dashed var(--line-2); border-radius: 18px; background: var(--surface-2); color: var(--ink-2); transition: border-color .15s, background .15s;
+}
+.tr-drop .ic { width: 30px; height: 30px; color: var(--ok); margin-bottom: 4px; }
+.tr-drop b { font-size: 15.5px; color: var(--ink); }
+.tr-drop small { font-size: 12.5px; color: var(--ink-3); }
+.tr-drop:hover, .tr-drop.over { border-color: var(--ok); background: var(--ok-soft); }
+.tr-how { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.tr-how b { display: flex; align-items: center; gap: 8px; font-size: 14.5px; }
+.tr-how b .ic { width: 18px; height: 18px; color: var(--accent); }
+.tr-how ol { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--ink-2); font-size: 14px; line-height: 1.5; }
+.tr-how ol b { display: inline; }
+.tr-diff { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.tr-diff li { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-size: 14px; color: var(--ink-2); }
+.tr-diff li b { font-size: 17px; font-weight: 800; min-width: 26px; font-variant-numeric: tabular-nums; }
+.tr-diff li.add { background: var(--ok-soft); } .tr-diff li.add b { color: var(--ok); }
+.tr-diff li.upd { background: var(--accent-soft); } .tr-diff li.upd b { color: var(--accent-2); }
+.tr-diff li.same b { color: var(--ink-3); }
+.tr-ok { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--ok-soft); color: var(--ok); font-weight: 650; }
+
+@media (min-width: 720px) {
+  .tr-grid { grid-template-columns: 1fr 1fr; }
+  .tr-how { grid-template-columns: 1fr 1fr; gap: 24px; }
+}
+
 /* ---------- yazdırma / PDF ---------- */
 #print-root { display: none; }
 @media print {
